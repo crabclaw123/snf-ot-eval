@@ -22,13 +22,11 @@ const emptyForm: EvaluationFormData = {
     medicalRecordNumber: "",
     dateOfBirth: "",
     evaluationDate: new Date().toISOString().slice(0, 10),
-    referralSource: "",
     medicalDiagnosis: "",
     reasonForReferral: "",
   },
   occupationalProfile: {
     priorSetting: "",
-    livingSituation: "",
     roles: "",
     routines: "",
     interests: "",
@@ -182,8 +180,6 @@ export default function App() {
                 <TextField label="Evaluation date" type="date" slotProps={{ inputLabel: { shrink: true } }}
                   value={evaluation.formData.patientInfo.evaluationDate}
                   onChange={(e) => updateForm("patientInfo", "evaluationDate", e.target.value)} disabled={evaluation.status === "submitted"} />
-                <TextField label="Referral source" value={evaluation.formData.patientInfo.referralSource}
-                  onChange={(e) => updateForm("patientInfo", "referralSource", e.target.value)} disabled={evaluation.status === "submitted"} />
                 <TextField label="Medical diagnosis" value={evaluation.formData.patientInfo.medicalDiagnosis}
                   onChange={(e) => updateForm("patientInfo", "medicalDiagnosis", e.target.value)} disabled={evaluation.status === "submitted"} />
                 <TextField label="Reason for OT referral" multiline minRows={3} value={evaluation.formData.patientInfo.reasonForReferral}
@@ -198,8 +194,8 @@ export default function App() {
               <Stack spacing={2}>
                 <TextField label="Prior setting / living environment" multiline minRows={2} value={evaluation.formData.occupationalProfile.priorSetting}
                   onChange={(e) => updateForm("occupationalProfile", "priorSetting", e.target.value)} disabled={evaluation.status === "submitted"} />
-                <TextField label="Current living situation" multiline minRows={2} value={evaluation.formData.occupationalProfile.livingSituation}
-                  onChange={(e) => updateForm("occupationalProfile", "livingSituation", e.target.value)} disabled={evaluation.status === "submitted"} />
+                <TextField label="Prior living situation" multiline minRows={2} value={evaluation.formData.occupationalProfile.priorSetting}
+                  onChange={(e) => updateForm("occupationalProfile", "priorSetting", e.target.value)} disabled={evaluation.status === "submitted"} />
                 <TextField label="Important roles" value={evaluation.formData.occupationalProfile.roles}
                   onChange={(e) => updateForm("occupationalProfile", "roles", e.target.value)} disabled={evaluation.status === "submitted"} />
                 <TextField label="Typical routines" multiline minRows={2} value={evaluation.formData.occupationalProfile.routines}
