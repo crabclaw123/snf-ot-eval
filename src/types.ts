@@ -11,6 +11,7 @@ export interface PatientInfo {
 
 export interface OccupationalProfile {
   priorSetting: string;
+  livingSituation: string;
   roles: string;
   routines: string;
   interests: string;
