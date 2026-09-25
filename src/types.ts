@@ -5,14 +5,12 @@ export interface PatientInfo {
   medicalRecordNumber: string;
   dateOfBirth: string;
   evaluationDate: string;
-  referralSource: string;
   medicalDiagnosis: string;
   reasonForReferral: string;
 }
 
 export interface OccupationalProfile {
   priorSetting: string;
-  livingSituation: string;
   roles: string;
   routines: string;
   interests: string;
