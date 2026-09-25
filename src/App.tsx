@@ -14,7 +14,13 @@ import {
   Typography,
 } from "@mui/material";
 import type { Evaluation, EvaluationFormData } from "./types";
-import { generateResumeCode, getLastCode, loadLocalEvaluation, saveLocalEvaluation } from "./storage";
+import {
+  ensureAnonymousAuth,
+  generateResumeCode,
+  getLastCode,
+  loadEvaluation,
+  saveEvaluation,
+} from "./storage";
 
 const emptyForm: EvaluationFormData = {
   patientInfo: {
@@ -27,6 +33,7 @@ const emptyForm: EvaluationFormData = {
   },
   occupationalProfile: {
     priorSetting: "",
+    livingSituation: "",
     roles: "",
     routines: "",
     interests: "",
@@ -43,6 +50,7 @@ export default function App() {
   const [resumeCode, setResumeCode] = useState("");
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
   const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
 
   const progress = useMemo(() => {
     if (!evaluation) return 0;
@@ -58,42 +66,68 @@ export default function App() {
     if (last) setResumeCode(last);
   }, []);
 
-  function startEvaluation() {
+  async function startEvaluation() {
     const name = studentName.trim();
     if (!name) {
       setMessage("Enter your name before starting.");
       return;
     }
 
-    const now = new Date().toISOString();
-    const next: Evaluation = {
-      id: crypto.randomUUID(),
-      resumeCode: generateResumeCode(),
-      studentName: name,
-      status: "draft",
-      createdAt: now,
-      updatedAt: now,
-      formData: structuredClone(emptyForm),
-    };
-
-    saveLocalEvaluation(next);
-    setEvaluation(next);
-    setResumeCode(next.resumeCode);
+    setBusy(true);
     setMessage("");
-    setScreen("evaluation");
+
+    try {
+      await ensureAnonymousAuth();
+
+      const now = new Date().toISOString();
+      const next: Evaluation = {
+        id: crypto.randomUUID(),
+        resumeCode: generateResumeCode(),
+        studentName: name,
+        status: "draft",
+        createdAt: now,
+        updatedAt: now,
+        formData: structuredClone(emptyForm),
+      };
+
+      await saveEvaluation(next);
+      setEvaluation(next);
+      setResumeCode(next.resumeCode);
+      setScreen("evaluation");
+    } catch (error) {
+      console.error(error);
+      setMessage("Could not connect to Firebase. Check your Firebase setup and try again.");
+    } finally {
+      setBusy(false);
+    }
   }
 
-  function resumeEvaluation() {
+  async function resumeEvaluation() {
     const code = resumeCode.trim().toUpperCase();
-    const found = loadLocalEvaluation(code);
-    if (!found) {
-      setMessage("No saved evaluation was found on this browser for that code.");
+    if (!code) {
+      setMessage("Enter a resume code.");
       return;
     }
-    setEvaluation(found);
-    setStudentName(found.studentName);
+
+    setBusy(true);
     setMessage("");
-    setScreen("evaluation");
+
+    try {
+      const found = await loadEvaluation(code);
+      if (!found) {
+        setMessage("No saved evaluation was found for that resume code.");
+        return;
+      }
+
+      setEvaluation(found);
+      setStudentName(found.studentName);
+      setScreen("evaluation");
+    } catch (error) {
+      console.error(error);
+      setMessage("Could not load that evaluation. Check your Firebase setup and try again.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   function updateForm<K extends keyof EvaluationFormData>(
@@ -102,6 +136,7 @@ export default function App() {
     value: string,
   ) {
     if (!evaluation || evaluation.status === "submitted") return;
+
     const next: Evaluation = {
       ...evaluation,
       updatedAt: new Date().toISOString(),
@@ -113,28 +148,56 @@ export default function App() {
         },
       },
     };
+
     setEvaluation(next);
-    saveLocalEvaluation(next);
+    localStorage.setItem(
+      "snf-ot-eval:" + next.resumeCode,
+      JSON.stringify(next),
+    );
   }
 
-  function saveDraft() {
+  async function saveDraft() {
     if (!evaluation) return;
+
+    setBusy(true);
+    setMessage("");
+
     const next = { ...evaluation, updatedAt: new Date().toISOString() };
     setEvaluation(next);
-    saveLocalEvaluation(next);
-    setMessage("Draft saved.");
+
+    try {
+      await saveEvaluation(next);
+      setMessage("Draft saved to Firebase.");
+    } catch (error) {
+      console.error(error);
+      setMessage("Draft could not be saved. Please try again.");
+    } finally {
+      setBusy(false);
+    }
   }
 
-  function submitEvaluation() {
+  async function submitEvaluation() {
     if (!evaluation) return;
+
+    setBusy(true);
+    setMessage("");
+
     const next: Evaluation = {
       ...evaluation,
       status: "submitted",
       updatedAt: new Date().toISOString(),
     };
-    setEvaluation(next);
-    saveLocalEvaluation(next);
-    setMessage("Evaluation submitted. This evaluation is now read-only.");
+
+    try {
+      await saveEvaluation(next);
+      setEvaluation(next);
+      setMessage("Evaluation submitted. This evaluation is now read-only.");
+    } catch (error) {
+      console.error(error);
+      setMessage("Evaluation could not be submitted. Please try again.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (screen === "evaluation" && evaluation) {
@@ -155,7 +218,7 @@ export default function App() {
 
           <Box>
             <Stack direction="row" justifyContent="space-between" sx={{ mb: 1 }}>
-              <Typography variant="body2">Checkpoint 1 progress</Typography>
+              <Typography variant="body2">Evaluation progress</Typography>
               <Typography variant="body2">{progress}%</Typography>
             </Stack>
             <LinearProgress variant="determinate" value={progress} />
@@ -194,8 +257,8 @@ export default function App() {
               <Stack spacing={2}>
                 <TextField label="Prior setting / living environment" multiline minRows={2} value={evaluation.formData.occupationalProfile.priorSetting}
                   onChange={(e) => updateForm("occupationalProfile", "priorSetting", e.target.value)} disabled={evaluation.status === "submitted"} />
-                <TextField label="Prior living situation" multiline minRows={2} value={evaluation.formData.occupationalProfile.priorSetting}
-                  onChange={(e) => updateForm("occupationalProfile", "priorSetting", e.target.value)} disabled={evaluation.status === "submitted"} />
+                <TextField label="Prior living situation" multiline minRows={2} value={evaluation.formData.occupationalProfile.livingSituation}
+                  onChange={(e) => updateForm("occupationalProfile", "livingSituation", e.target.value)} disabled={evaluation.status === "submitted"} />
                 <TextField label="Important roles" value={evaluation.formData.occupationalProfile.roles}
                   onChange={(e) => updateForm("occupationalProfile", "roles", e.target.value)} disabled={evaluation.status === "submitted"} />
                 <TextField label="Typical routines" multiline minRows={2} value={evaluation.formData.occupationalProfile.routines}
@@ -210,11 +273,11 @@ export default function App() {
             </CardContent>
           </Card>
 
-          {message && <Alert severity={message.startsWith("Draft") || message.startsWith("Evaluation") ? "success" : "error"}>{message}</Alert>}
+          {message && <Alert severity={message.includes("saved") || message.includes("submitted") ? "success" : "error"}>{message}</Alert>}
 
           <Stack direction="row" spacing={2} justifyContent="flex-end">
-            <Button variant="outlined" onClick={saveDraft} disabled={evaluation.status === "submitted"}>Save Draft</Button>
-            <Button variant="contained" onClick={submitEvaluation} disabled={evaluation.status === "submitted"}>Submit Evaluation</Button>
+            <Button variant="outlined" onClick={saveDraft} disabled={evaluation.status === "submitted" || busy}>Save Draft</Button>
+            <Button variant="contained" onClick={submitEvaluation} disabled={evaluation.status === "submitted" || busy}>Submit Evaluation</Button>
           </Stack>
         </Stack>
       </Container>
@@ -236,7 +299,7 @@ export default function App() {
             <Stack spacing={2}>
               <Typography variant="h5">Start a new evaluation</Typography>
               <TextField label="Student name" value={studentName} onChange={(e) => setStudentName(e.target.value)} />
-              <Button variant="contained" size="large" onClick={startEvaluation}>Start Evaluation</Button>
+              <Button variant="contained" size="large" onClick={startEvaluation} disabled={busy}>Start Evaluation</Button>
             </Stack>
           </CardContent>
         </Card>
@@ -248,13 +311,13 @@ export default function App() {
             <Stack spacing={2}>
               <Typography variant="h5">Resume an evaluation</Typography>
               <TextField label="Resume code" placeholder="SNF-8K4X-27QP" value={resumeCode} onChange={(e) => setResumeCode(e.target.value.toUpperCase())} />
-              <Button variant="outlined" size="large" onClick={resumeEvaluation}>Resume Evaluation</Button>
+              <Button variant="outlined" size="large" onClick={resumeEvaluation} disabled={busy}>Resume Evaluation</Button>
             </Stack>
           </CardContent>
         </Card>
 
-        <Alert severity="warning">
-          Checkpoint 1 uses browser storage only. Firestore persistence will be wired in the next checkpoint.
+        <Alert severity="info">
+          Evaluations are stored in Firebase. Resume codes can be used to continue a draft.
         </Alert>
 
         {message && <Alert severity="error">{message}</Alert>}
