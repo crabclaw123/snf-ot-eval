@@ -6,12 +6,21 @@ import App from "./App";
 const theme = createTheme({
   palette: {
     mode: "light",
-    primary: { main: "#315f72" },
-    secondary: { main: "#6b7280" },
-    background: { default: "#f5f7f8" },
+    primary: { main: "#C8102E", dark: "#9E1028", light: "#E34A63", contrastText: "#ffffff" },
+    secondary: { main: "#222222", dark: "#111111", light: "#555555", contrastText: "#ffffff" },
+    warning: { main: "#D9A441" },
+    background: { default: "#f6f6f6", paper: "#ffffff" },
   },
   typography: {
     fontFamily: "Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+    h3: { color: "#222222" },
+    h4: { color: "#222222" },
+    h5: { color: "#222222" },
+  },
+  shape: { borderRadius: 8 },
+  components: {
+    MuiCard: { styleOverrides: { root: { borderColor: "#e1e1e1" } } },
+    MuiButton: { styleOverrides: { root: { fontWeight: 700 } } },
   },
 });
 
