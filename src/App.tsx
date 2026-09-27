@@ -84,8 +84,8 @@ export default function App() {
     const sections = [
       f.patientInfo.patientName || f.patientInfo.reasonForReferral, f.occupationalProfile.summary,
       f.environmentPLOF.priorLivingEnvironment || f.environmentPLOF.equipment, Object.values(f.adlStatus.current).some(v => v !== "" && v !== "Not Assessed"),
-      Object.values(f.rom.right).some(v => v.status !== "Not Assessed") || Object.values(f.rom.left).some(v => v.status !== "Not Assessed"),
-      Object.values(f.strength.right).some(v => v.status !== "Not Assessed") || Object.values(f.strength.left).some(v => v.status !== "Not Assessed"),
+      Object.values(f.rom.right).some(v => v.status !== "" && v.status !== "Not Assessed") || Object.values(f.rom.left).some(v => v.status !== "" && v.status !== "Not Assessed"),
+      Object.values(f.strength.right).some(v => v.status !== "" && v.status !== "Not Assessed") || Object.values(f.strength.left).some(v => v.status !== "" && v.status !== "Not Assessed"),
       Object.values(f.clientFactors).some(v => Array.isArray(v) ? v.length : v), f.clinicalAssessment.assessmentSummary,
       f.goalsPlanOfCare.shortTermGoals || f.goalsPlanOfCare.longTermGoals, f.goalsPlanOfCare.frequency || f.goalsPlanOfCare.treatmentInterventions.length,
       Object.values(f.sectionGG).some(v => v !== ""), f.signatureAttestation.attestation,
@@ -148,6 +148,25 @@ export default function App() {
     const next = { ...evaluation, updatedAt: new Date().toISOString(), formData: { ...evaluation.formData, [section]: { ...current, [side]: { ...current[side], [movement]: { ...current[side][movement], [field]: value } } } } } as Evaluation;
     setEvaluation(next); localStorage.setItem("snf-ot-eval:" + next.resumeCode, JSON.stringify(next));
   }
+  function updateGoals(goals: OTGoal[]) {
+    if (!evaluation || evaluation.status === "submitted") return;
+    const next = {
+      ...evaluation,
+      updatedAt: new Date().toISOString(),
+      formData: {
+        ...evaluation.formData,
+        goalsPlanOfCare: {
+          ...evaluation.formData.goalsPlanOfCare,
+          goals,
+          shortTermGoals: goals.filter(g => g.type === "Short-term").map(g => g.goalStatement).join("\n"),
+          longTermGoals: goals.filter(g => g.type === "Long-term").map(g => g.goalStatement).join("\n"),
+        },
+      },
+    } as Evaluation;
+    setEvaluation(next);
+    localStorage.setItem("snf-ot-eval:" + next.resumeCode, JSON.stringify(next));
+  }
+
   async function saveDraft() {
     if (!evaluation) return;
     setBusy(true); setMessage("");
@@ -216,7 +235,6 @@ export default function App() {
       case "goals": {
         const goals = f.goalsPlanOfCare.goals;
         const updateGoalDraft = (field: keyof OTGoal, value: string) => setGoalDraft(g => ({ ...g, [field]: value }));
-        const selectedADL = ADLS.find(([key]) => key === goalDraft.occupation)?.[0];
         const baseline = goalDraft.occupation ? { plof: f.adlStatus.plof[goalDraft.occupation], current: f.adlStatus.current[goalDraft.occupation] } : { plof: "", current: "" };
         const draftWithBaseline = { ...goalDraft, plof: baseline.plof || goalDraft.plof, current: baseline.current || goalDraft.current };
         const preview = buildGoalStatement(draftWithBaseline);
@@ -227,19 +245,13 @@ export default function App() {
           }
           const finalGoal: OTGoal = { ...draftWithBaseline, id: crypto.randomUUID(), goalStatement: goalDraft.goalStatement.trim() || preview };
           const nextGoals = [...goals, finalGoal];
-          updateSection("goalsPlanOfCare", "goals", nextGoals);
-          const shortGoals = nextGoals.filter(g => g.type === "Short-term").map(g => g.goalStatement).join("\n");
-          const longGoals = nextGoals.filter(g => g.type === "Long-term").map(g => g.goalStatement).join("\n");
-          updateSection("goalsPlanOfCare", "shortTermGoals", shortGoals);
-          updateSection("goalsPlanOfCare", "longTermGoals", longGoals);
+          updateGoals(nextGoals);
           setGoalDraft(blankGoal());
           setMessage("");
         }
         function removeGoal(id: string) {
           const nextGoals = goals.filter(g => g.id !== id);
-          updateSection("goalsPlanOfCare", "goals", nextGoals);
-          updateSection("goalsPlanOfCare", "shortTermGoals", nextGoals.filter(g => g.type === "Short-term").map(g => g.goalStatement).join("\n"));
-          updateSection("goalsPlanOfCare", "longTermGoals", nextGoals.filter(g => g.type === "Long-term").map(g => g.goalStatement).join("\n"));
+          updateGoals(nextGoals);
         }
         return <PageCard title="Goals" help="Build measurable, occupation-based goals from the patient's documented baseline. AOTA guidance emphasizes client-centered, measurable goals and linking functional findings to occupational performance.">
           <Alert severity="info">Start with the occupation, review the patient's PLOF and current level, then choose a realistic target and define how progress will be measured.</Alert>
