@@ -43,8 +43,6 @@ const ADLS: [string, string][] = [
   ["lowerBodyDressing", "Lower-body dressing"], ["toileting", "Toileting"], ["toiletTransfer", "Toilet transfer"],
   ["showerTransfer", "Shower transfer"], ["bedMobility", "Bed mobility"], ["transfers", "Transfers"], ["functionalMobility", "Functional mobility"],
 ];
-const MOVEMENTS = ["Shoulder flexion", "Shoulder extension", "Shoulder abduction", "Shoulder external rotation", "Shoulder internal rotation", "Elbow flexion", "Elbow extension", "Forearm pronation", "Forearm supination", "Wrist flexion", "Wrist extension", "Wrist radial deviation", "Wrist ulnar deviation"];
-
 function Field({ label, value, onChange, disabled, multiline = false, minRows = 3, placeholder }: { label: string; value: string; onChange: (v: string) => void; disabled: boolean; multiline?: boolean; minRows?: number; placeholder?: string }) {
   return <TextField fullWidth label={label} value={value} onChange={e => onChange(e.target.value)} disabled={disabled} multiline={multiline} minRows={multiline ? minRows : undefined} placeholder={placeholder} />;
 }
@@ -112,7 +110,10 @@ export default function App() {
     const next = { ...evaluation, updatedAt: new Date().toISOString(), formData: { ...evaluation.formData, [section]: { ...evaluation.formData[section], [field]: value } } };
     setEvaluation(next); localStorage.setItem("snf-ot-eval:" + next.resumeCode, JSON.stringify(next));
   }
-  function updateNestedADL(side: "plof" | "current", key: string, value: string) {\n    if (!evaluation || evaluation.status === "submitted") return;\n    const next = { ...evaluation, updatedAt: new Date().toISOString(), formData: { ...evaluation.formData, adlStatus: { ...evaluation.formData.adlStatus, [side]: { ...evaluation.formData.adlStatus[side], [key]: value } } } } as Evaluation;\n    setEvaluation(next); localStorage.setItem("snf-ot-eval:" + next.resumeCode, JSON.stringify(next));\n  }\n  function updateNested(section: "rom" | "strength", side: "right" | "left", movement: string, field: string, value: string) {
+  function updateNestedADL(side: "plof" | "current", key: string, value: string) {
+    if (!evaluation || evaluation.status === "submitted") return;\n    const next = { ...evaluation, updatedAt: new Date().toISOString(), formData: { ...evaluation.formData, adlStatus: { ...evaluation.formData.adlStatus, [side]: { ...evaluation.formData.adlStatus[side], [key]: value } } } } as Evaluation;\n    setEvaluation(next); localStorage.setItem("snf-ot-eval:" + next.resumeCode, JSON.stringify(next));
+  }
+  function updateNested(section: "rom" | "strength", side: "right" | "left", movement: string, field: string, value: string) {
     if (!evaluation || evaluation.status === "submitted") return;
     const current = evaluation.formData[section];
     const next = { ...evaluation, updatedAt: new Date().toISOString(), formData: { ...evaluation.formData, [section]: { ...current, [side]: { ...current[side], [movement]: { ...current[side][movement], [field]: value } } } } } as Evaluation;
