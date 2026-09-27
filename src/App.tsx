@@ -119,6 +119,7 @@ export default function App() {
   const [goalDraft, setGoalDraft] = useState<OTGoal>(blankGoal());
   const [goalWizardOpen, setGoalWizardOpen] = useState(false);
   const [goalWizardStep, setGoalWizardStep] = useState(0);
+  const [goalContext, setGoalContext] = useState("");
   const disabled = evaluation?.status === "submitted" || busy;
 
   useEffect(() => { const last = getLastCode(); if (last) setResumeCode(last); }, []);
@@ -212,6 +213,14 @@ export default function App() {
     localStorage.setItem("snf-ot-eval:" + next.resumeCode, JSON.stringify(next));
   }
 
+  function openGoalBuilder(prefill: Partial<OTGoal> = {}, context = "") {
+    setGoalDraft({ ...blankGoal(), ...prefill });
+    setGoalContext(context);
+    setGoalWizardStep(0);
+    setGoalWizardOpen(true);
+    setPage("goals");
+  }
+
   async function saveDraft() {
     if (!evaluation) return;
     setBusy(true); setMessage("");
@@ -235,6 +244,26 @@ export default function App() {
           return <SelectField label="MMT" value={strengthFinding.mmt} options={["0", "1", "2-", "2", "2+", "3-", "3", "3+", "4-", "4", "4+", "5"]} disabled={!!disabled} onChange={v => updateNested(section, side, movement, "mmt", v)} />;
         })())}
         {finding.status === "Impaired" && <Field label="Notes" value={finding.notes} disabled={!!disabled} onChange={v => updateNested(section, side, movement, "notes", v)} />}
+        {finding.status === "Impaired" && <Button
+          variant="outlined"
+          size="small"
+          onClick={() => {
+            const detail = isROM
+              ? (() => {
+                  const r = finding as import("./types").ROMFinding;
+                  return `${side === "right" ? "Right" : "Left"} ${movement} — Impaired; AROM: ${r.arom || "not documented"}°, PROM: ${r.prom || "not documented"}°`;
+                })()
+              : (() => {
+                  const s = finding as import("./types").StrengthFinding;
+                  return `${side === "right" ? "Right" : "Left"} ${movement} — Impaired; MMT: ${s.mmt || "not documented"}`;
+                })();
+            openGoalBuilder({}, detail);
+          }}
+          disabled={!!disabled}
+          sx={{ alignSelf: "flex-start", textTransform: "none" }}
+        >
+          Build Goal
+        </Button>}
       </Stack></CardContent></Card>;
     };
     return <PageCard title={isROM ? "Range of Motion" : "Strength"} help="Each movement is documented separately for the right and left upper extremities.">
@@ -261,7 +290,7 @@ export default function App() {
         <Field label="Environment / Home Setup" value={f.environmentPLOF.priorLivingEnvironment} disabled={!!disabled} onChange={v => updateSection("environmentPLOF","priorLivingEnvironment",v)} multiline minRows={12} placeholder="Describe the prior living setting, layout, stairs, bathroom setup, accessibility, caregiver/support availability, routines or environmental demands, and other contextual factors relevant to occupational performance." />
         <Field label="Current equipment / DME / assistive devices (list)" value={f.environmentPLOF.equipment} disabled={!!disabled} onChange={v => updateSection("environmentPLOF","equipment",v)} placeholder="Example: rolling walker, shower chair, grab bars, wheelchair." />
       </PageCard>;
-      case "function": return <PageCard title="Performance" help="Document the patient's prior and current assistance levels for each occupation. PLOF is captured here functionally rather than as a separate narrative."><Stack spacing={1.5}>{ADLS.map(([key,label]) => <Card variant="outlined" key={key}><CardContent><Stack spacing={1.5}><Typography variant="h6">{label}</Typography><Stack direction={{ xs:"column", sm:"row" }} spacing={1.5}><SelectField label="PLOF" value={f.adlStatus.plof[key]} options={ASSISTANCE_OPTIONS} disabled={!!disabled} onChange={v => updateNestedADL("plof",key,v)} /><SelectField label="Current level" value={f.adlStatus.current[key]} options={ASSISTANCE_OPTIONS} disabled={!!disabled} onChange={v => updateNestedADL("current",key,v)} /></Stack></Stack></CardContent></Card>)}</Stack><Field label="Current occupational performance / functional observations" value={f.adlStatus.observations} disabled={!!disabled} onChange={v => updateSection("adlStatus","observations",v)} multiline minRows={8} /><Stack direction={{ xs:"column", sm:"row" }} spacing={1.5}><Field label="Activity tolerance" value={f.adlStatus.activityTolerance} disabled={!!disabled} onChange={v => updateSection("adlStatus","activityTolerance",v)} /><Field label="Cueing needed" value={f.adlStatus.cueingNeeded} disabled={!!disabled} onChange={v => updateSection("adlStatus","cueingNeeded",v)} /></Stack><Field label="Safety awareness" value={f.adlStatus.safetyAwareness} disabled={!!disabled} onChange={v => updateSection("adlStatus","safetyAwareness",v)} multiline /></PageCard>;
+      case "function": return <PageCard title="Performance" help="Document the patient's prior and current assistance levels for each occupation. PLOF is captured here functionally rather than as a separate narrative."><Stack spacing={1.5}>{ADLS.map(([key,label]) => <Card variant="outlined" key={key}><CardContent><Stack spacing={1.5}><Typography variant="h6">{label}</Typography><Stack direction={{ xs:"column", sm:"row" }} spacing={1.5}><SelectField label="PLOF" value={f.adlStatus.plof[key]} options={ASSISTANCE_OPTIONS} disabled={!!disabled} onChange={v => updateNestedADL("plof",key,v)} /><SelectField label="Current level" value={f.adlStatus.current[key]} options={ASSISTANCE_OPTIONS} disabled={!!disabled} onChange={v => updateNestedADL("current",key,v)} /></Stack>{f.adlStatus.current[key] && f.adlStatus.current[key] !== "Not Assessed" && f.adlStatus.current[key] !== "Not Applicable" && <Button variant="outlined" size="small" onClick={() => openGoalBuilder({ occupation: key, plof: f.adlStatus.plof[key], current: f.adlStatus.current[key] }, `${label} — Current level: ${f.adlStatus.current[key]}`)} disabled={!!disabled} sx={{ alignSelf: "flex-start", textTransform: "none" }}>Build Goal</Button>}</Stack></CardContent></Card>)}</Stack><Field label="Current occupational performance / functional observations" value={f.adlStatus.observations} disabled={!!disabled} onChange={v => updateSection("adlStatus","observations",v)} multiline minRows={8} /><Stack direction={{ xs:"column", sm:"row" }} spacing={1.5}><Field label="Activity tolerance" value={f.adlStatus.activityTolerance} disabled={!!disabled} onChange={v => updateSection("adlStatus","activityTolerance",v)} /><Field label="Cueing needed" value={f.adlStatus.cueingNeeded} disabled={!!disabled} onChange={v => updateSection("adlStatus","cueingNeeded",v)} /></Stack><Field label="Safety awareness" value={f.adlStatus.safetyAwareness} disabled={!!disabled} onChange={v => updateSection("adlStatus","safetyAwareness",v)} multiline /></PageCard>;
       case "rom": return renderFindingPage("rom");
       case "strength": return renderFindingPage("strength");
       case "client": return <PageCard title="Cognition, Communication & Sensory Skills" help="Use quick clinical selections for orientation, cognition, communication, sensory status, and related performance factors. Use the Clinical Assessment page for narrative synthesis."><Stack spacing={2}>
@@ -313,7 +342,7 @@ export default function App() {
         }
         return <PageCard title="Goals" help="Build measurable, occupation-based goals from the patient's documented baseline. Work through the guided phrase selections, then review the generated statement before adding it.">
           <Alert severity="info">The goal builder is designed to make you practice the pieces of a functional OT goal: occupation → target → functional problem → condition → measurement → timeframe.</Alert>
-          <Button variant="contained" size="large" onClick={()=>{setGoalDraft(blankGoal());setGoalWizardStep(0);setGoalWizardOpen(true);}} disabled={!!disabled}>Open Guided Goal Builder</Button>
+          <Button variant="contained" size="large" onClick={()=>openGoalBuilder()} disabled={!!disabled}>Open Guided Goal Builder</Button>
 
           <Dialog open={goalWizardOpen} onClose={()=>setGoalWizardOpen(false)} fullWidth maxWidth="md">
             <DialogTitle>Build an OT Goal</DialogTitle>
@@ -322,6 +351,7 @@ export default function App() {
                 <Typography color="text.secondary">Step {goalWizardStep + 1} of {GOAL_WIZARD_STEPS.length}</Typography>
                 <Typography variant="h6">{wizardStep.title}</Typography>
                 <Typography color="text.secondary">{wizardStep.help}</Typography>
+                {goalContext && <Alert severity="info">Started from: <strong>{goalContext}</strong>{!goalDraft.occupation && " — now connect this finding to an occupation."}</Alert>}
                 {wizardStep.key === "occupation" && goalDraft.occupation && <Card variant="outlined"><CardContent><Typography fontWeight={700}>{ADLS.find(([key])=>key===goalDraft.occupation)?.[1]} baseline</Typography><Typography>PLOF: <strong>{baseline.plof || "Not documented"}</strong></Typography><Typography>Current: <strong>{baseline.current || "Not documented"}</strong></Typography></CardContent></Card>}
                 <Stack spacing={1}>
                   {wizardOptions.map(option => <Button key={option.value} variant={goalDraft[wizardStep.key] === option.value ? "contained" : "outlined"} onClick={()=>chooseWizardValue(option.value)} sx={{justifyContent:"flex-start",textTransform:"none",py:1.4}}>{option.label}</Button>)}
