@@ -152,7 +152,13 @@ export default function App() {
           return <Card variant="outlined" key={m}><CardContent><Stack spacing={1.5}>
             <Typography fontWeight={600}>{m}</Typography>
             <SelectField label="Finding" value={finding.status} options={FINDING_OPTIONS} disabled={!!disabled} onChange={v => updateNested(section, side, m, "status", v)} />
-            {finding.status === "Impaired" && (isROM ? <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}><Field label="AROM (degrees)" value={finding.arom} disabled={!!disabled} onChange={v => updateNested(section, side, m, "arom", v)} /><Field label="PROM (degrees)" value={finding.prom} disabled={!!disabled} onChange={v => updateNested(section, side, m, "prom", v)} /></Stack> : <SelectField label="MMT" value={finding.mmt} options={["0", "1", "2-", "2", "2+", "3-", "3", "3+", "4-", "4", "4+", "5"]} disabled={!!disabled} onChange={v => updateNested(section, side, m, "mmt", v)} />)}
+            {finding.status === "Impaired" && (isROM ? (() => {
+              const romFinding = finding as import("./types").ROMFinding;
+              return <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}><Field label="AROM (degrees)" value={romFinding.arom} disabled={!!disabled} onChange={v => updateNested(section, side, m, "arom", v)} /><Field label="PROM (degrees)" value={romFinding.prom} disabled={!!disabled} onChange={v => updateNested(section, side, m, "prom", v)} /></Stack>;
+            })() : (() => {
+              const strengthFinding = finding as import("./types").StrengthFinding;
+              return <SelectField label="MMT" value={strengthFinding.mmt} options={["0", "1", "2-", "2", "2+", "3-", "3", "3+", "4-", "4", "4+", "5"]} disabled={!!disabled} onChange={v => updateNested(section, side, m, "mmt", v)} />;
+            })())}
             {finding.status === "Impaired" && <Field label="Notes" value={finding.notes} disabled={!!disabled} onChange={v => updateNested(section, side, m, "notes", v)} />}
           </Stack></CardContent></Card>;
         })}
