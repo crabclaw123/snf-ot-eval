@@ -73,7 +73,8 @@ export default function App() {
   const [resumeCode, setResumeCode] = useState("");
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
   const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState(false);\n  const [goalDraft, setGoalDraft] = useState<OTGoal>(blankGoal());
+  const [busy, setBusy] = useState(false);
+  const [goalDraft, setGoalDraft] = useState<OTGoal>(blankGoal());
   const disabled = evaluation?.status === "submitted" || busy;
 
   useEffect(() => { const last = getLastCode(); if (last) setResumeCode(last); }, []);
