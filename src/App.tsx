@@ -51,14 +51,14 @@ const GOAL_WIZARD_STEPS = [
 
 const GOAL_PHRASES: Record<string, string[]> = {
   performanceProblem: [
-    "to improve independence with daily self-care",
-    "to increase safety during functional mobility",
-    "to improve independence with toileting",
-    "to improve independence with dressing",
-    "to improve independence with bathing",
-    "to support safe discharge to the prior living environment",
-    "to reduce caregiver burden during daily routines",
-    "to improve participation in a meaningful daily routine",
+    "improve independence with daily self-care",
+    "increase safety during functional mobility",
+    "improve independence with toileting",
+    "improve independence with dressing",
+    "improve independence with bathing",
+    "support safe discharge to the prior living environment",
+    "reduce caregiver burden during daily routines",
+    "improve participation in a meaningful daily routine",
   ],
   condition: [
     "with no more than 1 verbal cue",
