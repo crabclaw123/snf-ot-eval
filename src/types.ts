@@ -53,7 +53,7 @@ export const MOVEMENTS = ["Shoulder flexion","Shoulder extension","Shoulder abdu
 export const createEmptyFormData = (): EvaluationFormData => {
   const makeROM = () => Object.fromEntries(MOVEMENTS.map(m => [m, blankROMFinding()]));
   const makeStrength = () => Object.fromEntries(MOVEMENTS.map(m => [m, blankStrengthFinding()]));
-  const makeADLs = () => Object.fromEntries(["eating","grooming","bathing","upperBodyDressing","lowerBodyDressing","toileting","toiletTransfer","showerTransfer","bedMobility","transfers","functionalMobility"].map(m => [m, "Not Assessed"]));
+  const makeADLs = (): Record<string, AssistanceLevel> => Object.fromEntries(["eating","grooming","bathing","upperBodyDressing","lowerBodyDressing","toileting","toiletTransfer","showerTransfer","bedMobility","transfers","functionalMobility"].map(m => [m, "Not Assessed"]));
   return {
     patientInfo:{patientName:"",medicalRecordNumber:"",dateOfBirth:"",evaluationDate:new Date().toISOString().slice(0,10),medicalDiagnosis:"",reasonForReferral:""},
     occupationalProfile:{summary:""}, environmentPLOF:{priorLivingEnvironment:"",equipment:"",plofSummary:""},
@@ -72,8 +72,8 @@ export function normalizeEvaluation(raw: Evaluation): Evaluation {
   const defaults = createEmptyFormData();
   const old = raw.formData as any;
   const oldADL = old?.adlStatus ?? {};
-  const oldPLOF: Record<string, AssistanceLevel> = Object.fromEntries(Object.keys(defaults.adlStatus.plof).map(k => [k, oldADL[k] ?? "Not Assessed"]));
-  const currentADL: Record<string, AssistanceLevel> = Object.fromEntries(Object.keys(defaults.adlStatus.current).map(k => [k, "Not Assessed"]));
+  const oldPLOF: Record<string, AssistanceLevel> = Object.fromEntries(Object.keys(defaults.adlStatus.plof).map(k => [k, (oldADL[k] ?? "Not Assessed") as AssistanceLevel]));
+  const currentADL: Record<string, AssistanceLevel> = Object.fromEntries(Object.keys(defaults.adlStatus.current).map(k => [k, "Not Assessed" as AssistanceLevel]));
   return {
     ...raw,
     formData:{
