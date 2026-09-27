@@ -4,7 +4,7 @@ import {
   FormControl, FormControlLabel, InputLabel, LinearProgress, MenuItem, Select,
   Stack, TextField, Typography,
 } from "@mui/material";
-import type { AssistanceLevel, Evaluation, EvaluationFormData, FindingStatus, SectionGGCode } from "./types";
+import type { AssistanceLevel, Evaluation, EvaluationFormData, FindingStatus, GoalType, OTGoal, SectionGGCode } from "./types";
 import { createEmptyFormData, normalizeEvaluation, MOVEMENTS } from "./types";
 import { ensureAnonymousAuth, generateResumeCode, getLastCode, loadEvaluation, saveEvaluation } from "./storage";
 
@@ -15,7 +15,7 @@ const PAGES = [
   ["function", "Performance"],
   ["rom", "ROM"],
   ["strength", "Strength"],
-  ["client", "Cognition & Performance Skills"],
+  ["client", "Cognition, Communication & Sensory Skills"],
   ["assessment", "Clinical Assessment"],
   ["goals", "Goals"],
   ["plan", "Plan of Care"],
@@ -38,6 +38,19 @@ const GG_OPTIONS: { code: SectionGGCode; label: string }[] = [
   { code: "02", label: "02 — Substantial/maximal assistance" }, { code: "01", label: "01 — Dependent" },
   { code: "09", label: "09 — Not applicable / not attempted" }, { code: "88", label: "88 — Not attempted due to medical/safety concern" },
 ];
+const GOAL_TYPES: GoalType[] = ["Short-term", "Long-term"];
+const GOAL_TIMEFRAMES = ["1 week", "2 weeks", "3 weeks", "4 weeks", "6 weeks", "8 weeks", "By discharge"];
+function blankGoal(): OTGoal {
+  return { id: "", type: "Short-term", occupation: "", plof: "", current: "", target: "", performanceProblem: "", condition: "", measurableCriterion: "", timeframe: "", goalStatement: "" };
+}
+function buildGoalStatement(goal: OTGoal): string {
+  if (!goal.occupation || !goal.target) return "";
+  const problem = goal.performanceProblem.trim() || "improve occupational performance";
+  const condition = goal.condition.trim() ? ` while ${goal.condition.trim()}` : "";
+  const measure = goal.measurableCriterion.trim() ? ` as demonstrated by ${goal.measurableCriterion.trim()}` : "";
+  const timeframe = goal.timeframe ? ` within ${goal.timeframe}` : "";
+  return `Patient will improve ${goal.occupation.toLowerCase()} from ${goal.current || "current documented level"} to ${goal.target.toLowerCase()}${condition} in order to ${problem}${measure}${timeframe}.`;
+}
 const ADLS: [string, string][] = [
   ["eating", "Eating"], ["grooming", "Grooming"], ["bathing", "Bathing"], ["upperBodyDressing", "Upper-body dressing"],
   ["lowerBodyDressing", "Lower-body dressing"], ["toileting", "Toileting"], ["toiletTransfer", "Toilet transfer"],
@@ -60,7 +73,7 @@ export default function App() {
   const [resumeCode, setResumeCode] = useState("");
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
   const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(false);\n  const [goalDraft, setGoalDraft] = useState<OTGoal>(blankGoal());
   const disabled = evaluation?.status === "submitted" || busy;
 
   useEffect(() => { const last = getLastCode(); if (last) setResumeCode(last); }, []);
@@ -200,7 +213,56 @@ export default function App() {
         <SelectField label="Functional mobility" value={f.clientFactors.functionalMobility} options={["Functional","Requires supervision / cues","Requires physical assistance","Unable to assess"]} disabled={!!disabled} onChange={v=>updateSection("clientFactors","functionalMobility",v)} />
         </Stack></PageCard>;
       case "assessment": return <PageCard title="Clinical Assessment / OT Analysis" help="Synthesize the evaluation findings into one clinical narrative. Include strengths, impairments, activity limitations, participation restrictions, occupational performance problems, and why skilled OT is indicated."><Field label="Assessment / Clinical Impression" value={f.clinicalAssessment.assessmentSummary} disabled={!!disabled} onChange={v=>updateSection("clinicalAssessment","assessmentSummary",v)} multiline minRows={16} placeholder="Synthesize the relevant findings and explain their impact on occupational performance and the need for skilled OT." /><SelectField label="Rehabilitation prognosis" value={f.clinicalAssessment.prognosis} options={["Good","Fair","Guarded","Unable to determine"]} disabled={!!disabled} onChange={v=>updateSection("clinicalAssessment","prognosis",v)} /></PageCard>;
-      case "goals": return <PageCard title="Goals" help="Goals are intentionally open-ended for this first workflow pass. The guided SMART builder will be added after the core evaluation is stable."><Field label="Short-term goals" value={f.goalsPlanOfCare.shortTermGoals} disabled={!!disabled} onChange={v=>updateSection("goalsPlanOfCare","shortTermGoals",v)} multiline minRows={10} /><Field label="Long-term goals" value={f.goalsPlanOfCare.longTermGoals} disabled={!!disabled} onChange={v=>updateSection("goalsPlanOfCare","longTermGoals",v)} multiline minRows={10} /></PageCard>;
+      case "goals": {
+        const goals = f.goalsPlanOfCare.goals;
+        const updateGoalDraft = (field: keyof OTGoal, value: string) => setGoalDraft(g => ({ ...g, [field]: value }));
+        const selectedADL = ADLS.find(([key]) => key === goalDraft.occupation)?.[0];
+        const baseline = goalDraft.occupation ? { plof: f.adlStatus.plof[goalDraft.occupation], current: f.adlStatus.current[goalDraft.occupation] } : { plof: "", current: "" };
+        const draftWithBaseline = { ...goalDraft, plof: baseline.plof || goalDraft.plof, current: baseline.current || goalDraft.current };
+        const preview = buildGoalStatement(draftWithBaseline);
+        function addGoal() {
+          if (!goalDraft.occupation || !goalDraft.target || !goalDraft.timeframe || !goalDraft.performanceProblem.trim()) {
+            setMessage("Complete occupation, target level, functional problem, and timeframe before adding the goal.");
+            return;
+          }
+          const finalGoal: OTGoal = { ...draftWithBaseline, id: crypto.randomUUID(), goalStatement: goalDraft.goalStatement.trim() || preview };
+          const nextGoals = [...goals, finalGoal];
+          updateSection("goalsPlanOfCare", "goals", nextGoals);
+          const shortGoals = nextGoals.filter(g => g.type === "Short-term").map(g => g.goalStatement).join("\n");
+          const longGoals = nextGoals.filter(g => g.type === "Long-term").map(g => g.goalStatement).join("\n");
+          updateSection("goalsPlanOfCare", "shortTermGoals", shortGoals);
+          updateSection("goalsPlanOfCare", "longTermGoals", longGoals);
+          setGoalDraft(blankGoal());
+          setMessage("");
+        }
+        function removeGoal(id: string) {
+          const nextGoals = goals.filter(g => g.id !== id);
+          updateSection("goalsPlanOfCare", "goals", nextGoals);
+          updateSection("goalsPlanOfCare", "shortTermGoals", nextGoals.filter(g => g.type === "Short-term").map(g => g.goalStatement).join("\n"));
+          updateSection("goalsPlanOfCare", "longTermGoals", nextGoals.filter(g => g.type === "Long-term").map(g => g.goalStatement).join("\n"));
+        }
+        return <PageCard title="Goals" help="Build measurable, occupation-based goals from the patient's documented baseline. AOTA guidance emphasizes client-centered, measurable goals and linking functional findings to occupational performance.">
+          <Alert severity="info">Start with the occupation, review the patient's PLOF and current level, then choose a realistic target and define how progress will be measured.</Alert>
+          <Typography variant="h6">Overall occupational goal</Typography>
+          <Field label="What meaningful outcome is the patient working toward?" value={f.goalsPlanOfCare.overallGoal} disabled={!!disabled} onChange={v=>updateSection("goalsPlanOfCare","overallGoal",v)} multiline minRows={3} placeholder="Example: Return to completing morning self-care with the least amount of assistance needed for a safe discharge home." />
+          <Divider />
+          <Typography variant="h6">Guided SMART goal builder</Typography>
+          <Stack direction={{xs:"column",sm:"row"}} spacing={1.5}>
+            <SelectField label="Goal type" value={goalDraft.type} options={GOAL_TYPES} disabled={!!disabled} onChange={v=>updateGoalDraft("type",v)} />
+            <SelectField label="Occupation / activity" value={goalDraft.occupation} options={ADLS.map(([key,label])=>key + " — " + label)} disabled={!!disabled} onChange={v=>updateGoalDraft("occupation",v.split(" — ")[0])} />
+          </Stack>
+          {goalDraft.occupation && <Card variant="outlined"><CardContent><Stack spacing={1}><Typography fontWeight={700}>{ADLS.find(([key])=>key===goalDraft.occupation)?.[1]} baseline</Typography><Typography>PLOF: <strong>{baseline.plof || "Not documented"}</strong></Typography><Typography>Current: <strong>{baseline.current || "Not documented"}</strong></Typography><Typography color="text.secondary">Use the current level as the baseline for the goal; PLOF provides context for the patient's prior function.</Typography></Stack></CardContent></Card>}
+          <SelectField label="Target assistance / performance level" value={goalDraft.target} options={ASSISTANCE_OPTIONS.filter(x=>x !== "" && x !== "Not Assessed" && x !== "Not Applicable")} disabled={!!disabled} onChange={v=>updateGoalDraft("target",v)} />
+          <Field label="Functional performance problem / why this goal matters" value={goalDraft.performanceProblem} disabled={!!disabled} onChange={v=>updateGoalDraft("performanceProblem",v)} multiline minRows={3} placeholder="Example: improve independence with morning self-care for safe discharge home." />
+          <Field label="Condition / context / cueing" value={goalDraft.condition} disabled={!!disabled} onChange={v=>updateGoalDraft("condition",v)} placeholder="Example: using adaptive equipment and no more than 1 verbal cue." />
+          <Field label="Measurable criterion" value={goalDraft.measurableCriterion} disabled={!!disabled} onChange={v=>updateGoalDraft("measurableCriterion",v)} placeholder="Example: in 4 out of 5 observed opportunities." />
+          <SelectField label="Timeframe" value={goalDraft.timeframe} options={GOAL_TIMEFRAMES} disabled={!!disabled} onChange={v=>updateGoalDraft("timeframe",v)} />
+          <Card variant="outlined"><CardContent><Stack spacing={1.5}><Typography fontWeight={700}>Goal preview</Typography><Typography>{preview || "Complete the occupation and target fields to preview the goal."}</Typography><Field label="Final goal statement" value={goalDraft.goalStatement || preview} disabled={!!disabled} onChange={v=>updateGoalDraft("goalStatement",v)} multiline minRows={4} /><Button variant="contained" onClick={addGoal} disabled={!!disabled}>Add Goal</Button></Stack></CardContent></Card>
+          <Divider />
+          <Typography variant="h6">Goals in this evaluation</Typography>
+          {goals.length === 0 ? <Typography color="text.secondary">No goals added yet.</Typography> : <Stack spacing={1.5}>{goals.map((goal,index)=><Card variant="outlined" key={goal.id || index}><CardContent><Stack spacing={1}><Stack direction="row" justifyContent="space-between" alignItems="center"><Typography fontWeight={700}>{goal.type} Goal {index+1}</Typography><Button color="error" size="small" onClick={()=>removeGoal(goal.id)}>Remove</Button></Stack><Typography>{goal.goalStatement}</Typography><Typography variant="body2" color="text.secondary">{goal.occupation} · Baseline: {goal.current || "Not documented"} · Target: {goal.target || "Not documented"} · {goal.timeframe || "No timeframe"}</Typography></Stack></CardContent></Card>)}</Stack>}
+        </PageCard>;
+      }
       case "plan": return <PageCard title="Plan of Care"><Stack spacing={2}><Stack direction={{xs:"column",sm:"row"}} spacing={1.5}><Field label="Frequency" value={f.goalsPlanOfCare.frequency} disabled={!!disabled} onChange={v=>updateSection("goalsPlanOfCare","frequency",v)} /><Field label="Duration" value={f.goalsPlanOfCare.duration} disabled={!!disabled} onChange={v=>updateSection("goalsPlanOfCare","duration",v)} /></Stack><Typography fontWeight={600}>Planned skilled interventions</Typography>{INTERVENTIONS.map(i=><FormControlLabel key={i} control={<Checkbox checked={f.goalsPlanOfCare.treatmentInterventions.includes(i)} disabled={!!disabled} onChange={e=>updateSection("goalsPlanOfCare","treatmentInterventions",e.target.checked?[...f.goalsPlanOfCare.treatmentInterventions,i]:f.goalsPlanOfCare.treatmentInterventions.filter(x=>x!==i))}/>} label={i}/>)}<Field label="Patient / caregiver education" value={f.goalsPlanOfCare.patientCaregiverEducation} disabled={!!disabled} onChange={v=>updateSection("goalsPlanOfCare","patientCaregiverEducation",v)} multiline minRows={6}/><Field label="Discharge planning / anticipated disposition" value={f.goalsPlanOfCare.dischargePlan} disabled={!!disabled} onChange={v=>updateSection("goalsPlanOfCare","dischargePlan",v)} multiline minRows={6}/></Stack></PageCard>;
       case "gg": return <PageCard title="Section GG" help="Educational reference only. This is not an official MDS or billing form."><Stack spacing={1.5}>{([["eating","Eating"],["oralHygiene","Oral hygiene"],["toiletingHygiene","Toileting hygiene"],["showerBathing","Shower / bathing"],["upperBodyDressing","Upper-body dressing"],["lowerBodyDressing","Lower-body dressing"],["footwear","Footwear"],["rolling","Rolling"],["sitToLying","Sit to lying"],["lyingToSitting","Lying to sitting"],["sitToStand","Sit to stand"],["chairBedTransfer","Chair / bed transfer"],["toiletTransfer","Toilet transfer"],["walking10Feet","Walking 10 feet"],["walking50FeetTurn","Walking 50 feet with turns"],["stairs","Stairs"]] as const).map(([key,label])=><SelectField key={key} label={label} value={f.sectionGG[key]} options={GG_OPTIONS.map(x=>x.label)} disabled={!!disabled} onChange={v=>updateSection("sectionGG",key,GG_OPTIONS.find(x=>x.label===v)?.code ?? "")}/>)}<Field label="Section GG notes / reasoning" value={f.sectionGG.ggNotes} disabled={!!disabled} onChange={v=>updateSection("sectionGG","ggNotes",v)} multiline minRows={6}/></Stack></PageCard>;
       case "review": return <PageCard title="Review / Attestation"><Alert severity="info">This blank evaluation is intentionally open-ended. Use the navigation to move between sections before saving or submitting.</Alert><Typography>Progress: {progress}%</Typography><LinearProgress variant="determinate" value={progress}/><Field label="Student name" value={f.signatureAttestation.studentName} disabled={!!disabled} onChange={v=>updateSection("signatureAttestation","studentName",v)}/><Field label="Credentials / role" value={f.signatureAttestation.credentials} disabled={!!disabled} onChange={v=>updateSection("signatureAttestation","credentials",v)}/><FormControlLabel control={<Checkbox checked={f.signatureAttestation.attestation} disabled={!!disabled} onChange={e=>updateSection("signatureAttestation","attestation",e.target.checked)}/>} label="I attest that this is my educational evaluation work based on a fictional case and that I believe that the Detroit Lions will win the superbowl" /></PageCard>;
