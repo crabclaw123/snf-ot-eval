@@ -120,6 +120,7 @@ export default function App() {
   const [goalWizardOpen, setGoalWizardOpen] = useState(false);
   const [goalWizardStep, setGoalWizardStep] = useState(0);
   const [goalContext, setGoalContext] = useState("");
+  const [submitDialogOpen, setSubmitDialogOpen] = useState(false);
   const disabled = evaluation?.status === "submitted" || busy;
 
   useEffect(() => { const last = getLastCode(); if (last) setResumeCode(last); }, []);
@@ -222,10 +223,57 @@ export default function App() {
   }
 
   async function saveDraft() {
-    if (!evaluation) return;
+    if (!evaluation || evaluation.status === "submitted") return;
     setBusy(true); setMessage("");
-    try { const next = { ...evaluation, updatedAt: new Date().toISOString() }; setEvaluation(next); await saveEvaluation(next); setMessage("Draft saved to Firebase."); }
-    catch (e) { console.error(e); setMessage("Draft could not be saved."); } finally { setBusy(false); }
+    try {
+      const next = { ...evaluation, updatedAt: new Date().toISOString() };
+      setEvaluation(next);
+      await saveEvaluation(next);
+      setMessage("Draft saved to Firebase.");
+    } catch (e) {
+      console.error(e);
+      setMessage("Draft could not be saved.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitEvaluation() {
+    if (!evaluation || evaluation.status === "submitted") return;
+    if (!evaluation.formData.signatureAttestation.attestation) {
+      setMessage("Complete the attestation before submitting.");
+      return;
+    }
+
+    setBusy(true);
+    setMessage("");
+    try {
+      const next: Evaluation = {
+        ...evaluation,
+        status: "submitted",
+        updatedAt: new Date().toISOString(),
+      };
+      await saveEvaluation(next);
+      setEvaluation(next);
+      setSubmitDialogOpen(false);
+      setPage("review");
+      setMessage("Evaluation submitted. It is now read-only.");
+    } catch (e) {
+      console.error(e);
+      setMessage("Evaluation could not be submitted.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function startNewEvaluation() {
+    setEvaluation(null);
+    setPage("patient");
+    setStudentName("");
+    setResumeCode("");
+    setMessage("");
+    setSubmitDialogOpen(false);
+    setScreen("home");
   }
 
   function renderFindingPage(section: "rom" | "strength") {
@@ -379,7 +427,46 @@ export default function App() {
       }
       case "plan": return <PageCard title="Plan of Care"><Stack spacing={2}><Stack direction={{xs:"column",sm:"row"}} spacing={1.5}><Field label="Frequency" value={f.goalsPlanOfCare.frequency} disabled={!!disabled} onChange={v=>updateSection("goalsPlanOfCare","frequency",v)} /><Field label="Duration" value={f.goalsPlanOfCare.duration} disabled={!!disabled} onChange={v=>updateSection("goalsPlanOfCare","duration",v)} /></Stack><Typography fontWeight={600}>Planned skilled interventions</Typography>{INTERVENTIONS.map(i=><FormControlLabel key={i} control={<Checkbox checked={f.goalsPlanOfCare.treatmentInterventions.includes(i)} disabled={!!disabled} onChange={e=>updateSection("goalsPlanOfCare","treatmentInterventions",e.target.checked?[...f.goalsPlanOfCare.treatmentInterventions,i]:f.goalsPlanOfCare.treatmentInterventions.filter(x=>x!==i))}/>} label={i}/>)}<Field label="Patient / caregiver education" value={f.goalsPlanOfCare.patientCaregiverEducation} disabled={!!disabled} onChange={v=>updateSection("goalsPlanOfCare","patientCaregiverEducation",v)} multiline minRows={6}/><Field label="Discharge planning / anticipated disposition" value={f.goalsPlanOfCare.dischargePlan} disabled={!!disabled} onChange={v=>updateSection("goalsPlanOfCare","dischargePlan",v)} multiline minRows={6}/></Stack></PageCard>;
       case "gg": return <PageCard title="Section GG" help="Educational reference only. This is not an official MDS or billing form."><Stack spacing={1.5}>{([["eating","Eating"],["oralHygiene","Oral hygiene"],["toiletingHygiene","Toileting hygiene"],["showerBathing","Shower / bathing"],["upperBodyDressing","Upper-body dressing"],["lowerBodyDressing","Lower-body dressing"],["footwear","Footwear"],["rolling","Rolling"],["sitToLying","Sit to lying"],["lyingToSitting","Lying to sitting"],["sitToStand","Sit to stand"],["chairBedTransfer","Chair / bed transfer"],["toiletTransfer","Toilet transfer"],["walking10Feet","Walking 10 feet"],["walking50FeetTurn","Walking 50 feet with turns"],["stairs","Stairs"]] as const).map(([key,label])=><SelectField key={key} label={label} value={f.sectionGG[key]} options={GG_OPTIONS.map(x=>x.label)} disabled={!!disabled} onChange={v=>updateSection("sectionGG",key,GG_OPTIONS.find(x=>x.label===v)?.code ?? "")}/>)}<Field label="Section GG notes / reasoning" value={f.sectionGG.ggNotes} disabled={!!disabled} onChange={v=>updateSection("sectionGG","ggNotes",v)} multiline minRows={6}/></Stack></PageCard>;
-      case "review": return <PageCard title="Review / Attestation"><Alert severity="info">This blank evaluation is intentionally open-ended. Use the navigation to move between sections before saving or submitting.</Alert><Typography>Progress: {progress}%</Typography><LinearProgress variant="determinate" value={progress}/><Field label="Student name" value={f.signatureAttestation.studentName} disabled={!!disabled} onChange={v=>updateSection("signatureAttestation","studentName",v)}/><Field label="Credentials / role" value={f.signatureAttestation.credentials} disabled={!!disabled} onChange={v=>updateSection("signatureAttestation","credentials",v)}/><FormControlLabel control={<Checkbox checked={f.signatureAttestation.attestation} disabled={!!disabled} onChange={e=>updateSection("signatureAttestation","attestation",e.target.checked)}/>} label="I attest that this is my educational evaluation work based on a fictional case and that I believe that the Detroit Lions will win the superbowl" /></PageCard>;
+      case "review": return <PageCard title="Review / Attestation">
+        {evaluation.status === "submitted" ? (
+          <Alert severity="success">
+            <Typography fontWeight={700}>Evaluation submitted</Typography>
+            <Typography>This evaluation is now read-only. You can review the completed evaluation using the navigation.</Typography>
+          </Alert>
+        ) : (
+          <Alert severity="info">Review your work before submitting. Once submitted, this evaluation becomes read-only.</Alert>
+        )}
+        <Typography>Progress: {progress}%</Typography>
+        <LinearProgress variant="determinate" value={progress}/>
+        <Field label="Student name" value={f.signatureAttestation.studentName} disabled={!!disabled} onChange={v=>updateSection("signatureAttestation","studentName",v)}/>
+        <Field label="Credentials / role" value={f.signatureAttestation.credentials} disabled={!!disabled} onChange={v=>updateSection("signatureAttestation","credentials",v)}/>
+        <FormControlLabel
+          control={<Checkbox checked={f.signatureAttestation.attestation} disabled={!!disabled} onChange={e=>updateSection("signatureAttestation","attestation",e.target.checked)}/>}
+          label="I attest that this is my educational evaluation work based on a fictional case and that I believe that the Detroit Lions will win the superbowl"
+        />
+        {evaluation.status === "submitted" ? (
+          <Stack spacing={1.5}>
+            <Typography variant="body2" color="text.secondary">Resume code: {evaluation.resumeCode}</Typography>
+            <Button variant="outlined" onClick={startNewEvaluation}>Start New Evaluation</Button>
+          </Stack>
+        ) : (
+          <Button
+            variant="contained"
+            color="primary"
+            size="large"
+            onClick={() => {
+              if (!f.signatureAttestation.attestation) {
+                setMessage("Complete the attestation before submitting.");
+                return;
+              }
+              setSubmitDialogOpen(true);
+            }}
+            disabled={!!disabled}
+          >
+            Submit Evaluation
+          </Button>
+        )}
+      </PageCard>;
     }
   }
 
@@ -390,8 +477,31 @@ export default function App() {
       <Card sx={{ width:{xs:"100%",md:260}, position:{md:"sticky"}, top:{md:16} }}><CardContent><Typography fontWeight={700} sx={{mb:1}}>Evaluation sections</Typography><Stack spacing={0.5}>{PAGES.map(([id,title],i)=><Button key={id} fullWidth sx={{justifyContent:"flex-start",textAlign:"left"}} variant={page===id?"contained":"text"} onClick={()=>setPage(id as PageId)}>{i+1}. {title}</Button>)}</Stack></CardContent></Card>
       <Box sx={{ flex:1, minWidth:0 }}>{renderPage()}<Stack direction="row" justifyContent="space-between" sx={{mt:2}}><Button disabled={PAGES.findIndex(p=>p[0]===page)===0} onClick={()=>setPage(PAGES[PAGES.findIndex(p=>p[0]===page)-1][0])}>Previous</Button><Button disabled={PAGES.findIndex(p=>p[0]===page)===PAGES.length-1} variant="contained" onClick={()=>setPage(PAGES[PAGES.findIndex(p=>p[0]===page)+1][0])}>Next</Button></Stack></Box>
     </Stack>
-    {message && <Alert severity={message.includes("saved") ? "success" : "error"}>{message}</Alert>}
-    <Stack direction="row" justifyContent="flex-end"><Button variant="outlined" onClick={saveDraft} disabled={!!disabled}>Save Draft</Button></Stack>
+    {message && <Alert severity={message.includes("saved") || message.includes("submitted") ? "success" : "error"}>{message}</Alert>}
+    <Stack direction="row" justifyContent="flex-end">
+      <Button variant="outlined" onClick={saveDraft} disabled={!!disabled}>Save Draft</Button>
+    </Stack>
+
+    <Dialog open={submitDialogOpen} onClose={() => !busy && setSubmitDialogOpen(false)} maxWidth="sm" fullWidth>
+      <DialogTitle>Submit Evaluation?</DialogTitle>
+      <DialogContent dividers>
+        <Stack spacing={2}>
+          <Typography>
+            Once you submit this evaluation, it will be saved to Firebase and become read-only.
+          </Typography>
+          <Typography color="text.secondary">
+            You will still be able to review the completed evaluation, but you will not be able to edit it.
+          </Typography>
+          <Alert severity="warning">
+            Make sure you have reviewed your documentation before submitting.
+          </Alert>
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => setSubmitDialogOpen(false)} disabled={busy}>Cancel</Button>
+        <Button variant="contained" onClick={submitEvaluation} disabled={busy}>Submit Evaluation</Button>
+      </DialogActions>
+    </Dialog>
   </Stack></Container>;
 
   return <Container maxWidth="sm" sx={{py:8}}><Stack spacing={3}><Box><Typography variant="h3" fontWeight={800}>SNF OT Evaluation</Typography><Typography variant="h6" color="text.secondary">Interactive teaching and practice tool for SNF OT initial evaluations.</Typography></Box><Card><CardContent><Stack spacing={2}><Typography variant="h5">Start a blank evaluation</Typography><Field label="Student name" value={studentName} disabled={busy} onChange={setStudentName}/><Button variant="contained" size="large" onClick={startEvaluation} disabled={busy}>Start Evaluation</Button></Stack></CardContent></Card><Divider>OR</Divider><Card><CardContent><Stack spacing={2}><Typography variant="h5">Resume an evaluation</Typography><Field label="Resume code" value={resumeCode} disabled={busy} onChange={v=>setResumeCode(v.toUpperCase())}/><Button variant="outlined" size="large" onClick={resumeEvaluation} disabled={busy}>Resume Evaluation</Button></Stack></CardContent></Card>{message&&<Alert severity="error">{message}</Alert>}</Stack></Container>;
