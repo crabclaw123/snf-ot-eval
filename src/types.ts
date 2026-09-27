@@ -9,9 +9,10 @@ export type AssistanceLevel =
   | "Moderate Assist"
   | "Maximal Assist"
   | "Dependent"
-  | "Not Tested"
+  | "Not Assessed"
   | "Not Applicable";
 
+export type FindingStatus = "WNL" | "WFL" | "Impaired" | "Not Assessed";
 export type SectionGGCode = "06" | "05" | "04" | "03" | "02" | "01" | "09" | "88";
 
 export interface PatientInfo {
@@ -24,23 +25,13 @@ export interface PatientInfo {
 }
 
 export interface OccupationalProfile {
-  priorSetting: string;
-  livingSituation: string;
-  roles: string;
-  routines: string;
-  interests: string;
-  patientGoals: string;
-  occupationalConcerns: string;
+  summary: string;
 }
 
-export interface PLOF {
-  priorSelfCare: string;
-  priorMobility: string;
-  priorIADL: string;
-  priorWorkLeisure: string;
-  priorEquipment: string;
-  priorAssistance: string;
-  baselineCognition: string;
+export interface EnvironmentPLOF {
+  priorLivingEnvironment: string;
+  equipment: string;
+  plofSummary: string;
 }
 
 export interface MedicalStatus {
@@ -53,26 +44,7 @@ export interface MedicalStatus {
   linesTubesDrains: string;
   skinWounds: string;
   medicalStability: string;
-  precautionsNotes: string;
-}
-
-export interface Examination {
-  arousalOrientation: string;
-  cognition: string[];
-  communication: string;
-  vision: string;
-  hearing: string;
-  sensation: string;
-  edema: string;
-  ROM: string;
-  strength: string;
-  coordination: string;
-  balance: string;
-  endurance: string;
-  motorPlanning: string;
-  functionalMobility: string;
-  standardizedAssessments: string;
-  assessmentFindings: string;
+  notes: string;
 }
 
 export interface ADLStatus {
@@ -94,27 +66,49 @@ export interface ADLStatus {
   observations: string;
 }
 
-export interface CognitivePsychosocialEnvironmental {
-  cognitionImpact: string;
-  psychosocialFactors: string[];
-  moodAffect: string;
-  motivation: string;
-  safetyAwareness: string;
-  environmentalBarriers: string;
-  environmentalSupports: string;
-  caregiverSupport: string;
-  dischargeSetting: string;
-  equipmentNeeds: string;
+export interface ROMFinding {
+  status: FindingStatus;
+  arom: string;
+  prom: string;
+  notes: string;
+}
+
+export interface ROMAssessment {
+  right: Record<string, ROMFinding>;
+  left: Record<string, ROMFinding>;
+  notes: string;
+}
+
+export interface StrengthFinding {
+  status: FindingStatus;
+  mmt: string;
+  notes: string;
+}
+
+export interface StrengthAssessment {
+  right: Record<string, StrengthFinding>;
+  left: Record<string, StrengthFinding>;
+  notes: string;
+}
+
+export interface ClientFactors {
+  cognition: string;
+  communication: string;
+  vision: string;
+  hearing: string;
+  sensation: string;
+  pain: string;
+  coordination: string;
+  balance: string;
+  endurance: string;
+  motorPlanning: string;
+  functionalMobility: string;
+  standardizedAssessments: string;
+  assessmentFindings: string;
 }
 
 export interface ClinicalAssessment {
-  strengths: string;
-  impairments: string;
-  activityLimitations: string;
-  participationRestrictions: string;
-  occupationalPerformanceProblem: string;
-  clinicalRationale: string;
-  skilledNeed: string;
+  assessmentSummary: string;
   prognosis: string;
 }
 
@@ -158,11 +152,12 @@ export interface SignatureAttestation {
 export interface EvaluationFormData {
   patientInfo: PatientInfo;
   occupationalProfile: OccupationalProfile;
-  plof: PLOF;
+  environmentPLOF: EnvironmentPLOF;
   medicalStatus: MedicalStatus;
-  examination: Examination;
   adlStatus: ADLStatus;
-  cognitivePsychosocialEnvironmental: CognitivePsychosocialEnvironmental;
+  rom: ROMAssessment;
+  strength: StrengthAssessment;
+  clientFactors: ClientFactors;
   clinicalAssessment: ClinicalAssessment;
   goalsPlanOfCare: GoalsPlanOfCare;
   sectionGG: SectionGG;
@@ -179,157 +174,159 @@ export interface Evaluation {
   formData: EvaluationFormData;
 }
 
-export const createEmptyFormData = (): EvaluationFormData => ({
-  patientInfo: {
-    patientName: "",
-    medicalRecordNumber: "",
-    dateOfBirth: "",
-    evaluationDate: new Date().toISOString().slice(0, 10),
-    medicalDiagnosis: "",
-    reasonForReferral: "",
-  },
-  occupationalProfile: {
-    priorSetting: "",
-    livingSituation: "",
-    roles: "",
-    routines: "",
-    interests: "",
-    patientGoals: "",
-    occupationalConcerns: "",
-  },
-  plof: {
-    priorSelfCare: "",
-    priorMobility: "",
-    priorIADL: "",
-    priorWorkLeisure: "",
-    priorEquipment: "",
-    priorAssistance: "",
-    baselineCognition: "",
-  },
-  medicalStatus: {
-    precautions: [],
-    weightBearing: "",
-    painLocation: "",
-    painRating: "",
-    vitals: "",
-    medicationsRelevant: "",
-    linesTubesDrains: "",
-    skinWounds: "",
-    medicalStability: "",
-    precautionsNotes: "",
-  },
-  examination: {
-    arousalOrientation: "",
-    cognition: [],
-    communication: "",
-    vision: "",
-    hearing: "",
-    sensation: "",
-    edema: "",
-    ROM: "",
-    strength: "",
-    coordination: "",
-    balance: "",
-    endurance: "",
-    motorPlanning: "",
-    functionalMobility: "",
-    standardizedAssessments: "",
-    assessmentFindings: "",
-  },
-  adlStatus: {
-    eating: "Not Tested",
-    grooming: "Not Tested",
-    bathing: "Not Tested",
-    upperBodyDressing: "Not Tested",
-    lowerBodyDressing: "Not Tested",
-    toileting: "Not Tested",
-    toiletTransfer: "Not Tested",
-    showerTransfer: "Not Tested",
-    bedMobility: "Not Tested",
-    transfers: "Not Tested",
-    functionalMobility: "Not Tested",
-    otherOccupations: "",
-    activityTolerance: "",
-    cueingNeeded: "",
-    safetyAwareness: "",
-    observations: "",
-  },
-  cognitivePsychosocialEnvironmental: {
-    cognitionImpact: "",
-    psychosocialFactors: [],
-    moodAffect: "",
-    motivation: "",
-    safetyAwareness: "",
-    environmentalBarriers: "",
-    environmentalSupports: "",
-    caregiverSupport: "",
-    dischargeSetting: "",
-    equipmentNeeds: "",
-  },
-  clinicalAssessment: {
-    strengths: "",
-    impairments: "",
-    activityLimitations: "",
-    participationRestrictions: "",
-    occupationalPerformanceProblem: "",
-    clinicalRationale: "",
-    skilledNeed: "",
-    prognosis: "",
-  },
-  goalsPlanOfCare: {
-    frequency: "",
-    duration: "",
-    treatmentInterventions: [],
-    shortTermGoals: "",
-    longTermGoals: "",
-    dischargePlan: "",
-    patientCaregiverEducation: "",
-  },
-  sectionGG: {
-    eating: "09",
-    oralHygiene: "09",
-    toiletingHygiene: "09",
-    showerBathing: "09",
-    upperBodyDressing: "09",
-    lowerBodyDressing: "09",
-    footwear: "09",
-    rolling: "09",
-    sitToLying: "09",
-    lyingToSitting: "09",
-    sitToStand: "09",
-    chairBedTransfer: "09",
-    toiletTransfer: "09",
-    walking10Feet: "09",
-    walking50FeetTurn: "09",
-    stairs: "09",
-    ggNotes: "",
-  },
-  signatureAttestation: {
-    studentName: "",
-    credentials: "",
-    attestation: false,
-    signatureDate: new Date().toISOString().slice(0, 10),
-  },
-});
+const blankROMFinding = (): ROMFinding => ({ status: "Not Assessed", arom: "", prom: "", notes: "" });
+const blankStrengthFinding = (): StrengthFinding => ({ status: "Not Assessed", mmt: "", notes: "" });
+
+const ROM_MOVEMENTS = [
+  "Shoulder flexion",
+  "Shoulder extension",
+  "Shoulder abduction",
+  "Shoulder external rotation",
+  "Shoulder internal rotation",
+  "Elbow flexion",
+  "Elbow extension",
+  "Forearm pronation",
+  "Forearm supination",
+  "Wrist flexion",
+  "Wrist extension",
+  "Wrist radial deviation",
+  "Wrist ulnar deviation",
+] as const;
+
+export const createEmptyFormData = (): EvaluationFormData => {
+  const rightROM = Object.fromEntries(ROM_MOVEMENTS.map((m) => [m, blankROMFinding()]));
+  const leftROM = Object.fromEntries(ROM_MOVEMENTS.map((m) => [m, blankROMFinding()]));
+  const rightStrength = Object.fromEntries(ROM_MOVEMENTS.map((m) => [m, blankStrengthFinding()]));
+  const leftStrength = Object.fromEntries(ROM_MOVEMENTS.map((m) => [m, blankStrengthFinding()]));
+
+  return {
+    patientInfo: {
+      patientName: "",
+      medicalRecordNumber: "",
+      dateOfBirth: "",
+      evaluationDate: new Date().toISOString().slice(0, 10),
+      medicalDiagnosis: "",
+      reasonForReferral: "",
+    },
+    occupationalProfile: { summary: "" },
+    environmentPLOF: { priorLivingEnvironment: "", equipment: "", plofSummary: "" },
+    medicalStatus: {
+      precautions: [],
+      weightBearing: "",
+      painLocation: "",
+      painRating: "",
+      vitals: "",
+      medicationsRelevant: "",
+      linesTubesDrains: "",
+      skinWounds: "",
+      medicalStability: "",
+      notes: "",
+    },
+    adlStatus: {
+      eating: "Not Assessed",
+      grooming: "Not Assessed",
+      bathing: "Not Assessed",
+      upperBodyDressing: "Not Assessed",
+      lowerBodyDressing: "Not Assessed",
+      toileting: "Not Assessed",
+      toiletTransfer: "Not Assessed",
+      showerTransfer: "Not Assessed",
+      bedMobility: "Not Assessed",
+      transfers: "Not Assessed",
+      functionalMobility: "Not Assessed",
+      otherOccupations: "",
+      activityTolerance: "",
+      cueingNeeded: "",
+      safetyAwareness: "",
+      observations: "",
+    },
+    rom: { right: rightROM, left: leftROM, notes: "" },
+    strength: { right: rightStrength, left: leftStrength, notes: "" },
+    clientFactors: {
+      cognition: "",
+      communication: "",
+      vision: "",
+      hearing: "",
+      sensation: "",
+      pain: "",
+      coordination: "",
+      balance: "",
+      endurance: "",
+      motorPlanning: "",
+      functionalMobility: "",
+      standardizedAssessments: "",
+      assessmentFindings: "",
+    },
+    clinicalAssessment: { assessmentSummary: "", prognosis: "" },
+    goalsPlanOfCare: {
+      frequency: "",
+      duration: "",
+      treatmentInterventions: [],
+      shortTermGoals: "",
+      longTermGoals: "",
+      dischargePlan: "",
+      patientCaregiverEducation: "",
+    },
+    sectionGG: {
+      eating: "09", oralHygiene: "09", toiletingHygiene: "09", showerBathing: "09",
+      upperBodyDressing: "09", lowerBodyDressing: "09", footwear: "09", rolling: "09",
+      sitToLying: "09", lyingToSitting: "09", sitToStand: "09", chairBedTransfer: "09",
+      toiletTransfer: "09", walking10Feet: "09", walking50FeetTurn: "09", stairs: "09", ggNotes: "",
+    },
+    signatureAttestation: {
+      studentName: "",
+      credentials: "",
+      attestation: false,
+      signatureDate: new Date().toISOString().slice(0, 10),
+    },
+  };
+};
 
 export function normalizeEvaluation(raw: Evaluation): Evaluation {
   const defaults = createEmptyFormData();
+  const legacy = raw.formData as Partial<EvaluationFormData> & Record<string, unknown>;
   return {
     ...raw,
     formData: {
       ...defaults,
       ...raw.formData,
       patientInfo: { ...defaults.patientInfo, ...raw.formData?.patientInfo },
-      occupationalProfile: { ...defaults.occupationalProfile, ...raw.formData?.occupationalProfile },
-      plof: { ...defaults.plof, ...raw.formData?.plof },
-      medicalStatus: { ...defaults.medicalStatus, ...raw.formData?.medicalStatus },
-      examination: { ...defaults.examination, ...raw.formData?.examination },
-      adlStatus: { ...defaults.adlStatus, ...raw.formData?.adlStatus },
-      cognitivePsychosocialEnvironmental: {
-        ...defaults.cognitivePsychosocialEnvironmental,
-        ...raw.formData?.cognitivePsychosocialEnvironmental,
+      occupationalProfile: {
+        ...defaults.occupationalProfile,
+        ...(raw.formData?.occupationalProfile as Partial<OccupationalProfile>),
+        summary: (raw.formData?.occupationalProfile as Partial<OccupationalProfile>)?.summary
+          ?? [
+            (raw.formData?.occupationalProfile as any)?.roles,
+            (raw.formData?.occupationalProfile as any)?.routines,
+            (raw.formData?.occupationalProfile as any)?.interests,
+            (raw.formData?.occupationalProfile as any)?.patientGoals,
+            (raw.formData?.occupationalProfile as any)?.occupationalConcerns,
+          ].filter(Boolean).join("\n"),
       },
-      clinicalAssessment: { ...defaults.clinicalAssessment, ...raw.formData?.clinicalAssessment },
+      environmentPLOF: { ...defaults.environmentPLOF, ...(raw.formData?.environmentPLOF as Partial<EnvironmentPLOF>) },
+      medicalStatus: {
+        ...defaults.medicalStatus,
+        ...(raw.formData?.medicalStatus as Partial<MedicalStatus>),
+        notes: (raw.formData?.medicalStatus as any)?.notes ?? (raw.formData?.medicalStatus as any)?.precautionsNotes ?? "",
+      },
+      adlStatus: { ...defaults.adlStatus, ...raw.formData?.adlStatus },
+      rom: { ...defaults.rom, ...(raw.formData?.rom as Partial<ROMAssessment>) },
+      strength: { ...defaults.strength, ...(raw.formData?.strength as Partial<StrengthAssessment>) },
+      clientFactors: { ...defaults.clientFactors, ...(raw.formData?.clientFactors as Partial<ClientFactors>) },
+      clinicalAssessment: {
+        ...defaults.clinicalAssessment,
+        ...(raw.formData?.clinicalAssessment as Partial<ClinicalAssessment>),
+        assessmentSummary: (raw.formData?.clinicalAssessment as any)?.assessmentSummary
+          ?? [
+            (raw.formData?.clinicalAssessment as any)?.strengths,
+            (raw.formData?.clinicalAssessment as any)?.impairments,
+            (raw.formData?.clinicalAssessment as any)?.activityLimitations,
+            (raw.formData?.clinicalAssessment as any)?.participationRestrictions,
+            (raw.formData?.clinicalAssessment as any)?.occupationalPerformanceProblem,
+            (raw.formData?.clinicalAssessment as any)?.clinicalRationale,
+            (raw.formData?.clinicalAssessment as any)?.skilledNeed,
+          ].filter(Boolean).join("\n"),
+      },
       goalsPlanOfCare: { ...defaults.goalsPlanOfCare, ...raw.formData?.goalsPlanOfCare },
       sectionGG: { ...defaults.sectionGG, ...raw.formData?.sectionGG },
       signatureAttestation: { ...defaults.signatureAttestation, ...raw.formData?.signatureAttestation },
