@@ -279,8 +279,10 @@ export default function App() {
       case "assessment": return <PageCard title="Clinical Assessment / OT Analysis" help="Synthesize the evaluation findings into one clinical narrative. Include strengths, impairments, activity limitations, participation restrictions, occupational performance problems, and why skilled OT is indicated."><Field label="Assessment / Clinical Impression" value={f.clinicalAssessment.assessmentSummary} disabled={!!disabled} onChange={v=>updateSection("clinicalAssessment","assessmentSummary",v)} multiline minRows={16} placeholder="Synthesize the relevant findings and explain their impact on occupational performance and the need for skilled OT." /><SelectField label="Rehabilitation prognosis" value={f.clinicalAssessment.prognosis} options={["Good","Fair","Guarded","Unable to determine"]} disabled={!!disabled} onChange={v=>updateSection("clinicalAssessment","prognosis",v)} /></PageCard>;
       case "goals": {
         const goals = f.goalsPlanOfCare.goals;
-        const baseline = goalDraft.occupation ? { plof: f.adlStatus.plof[goalDraft.occupation], current: f.adlStatus.current[goalDraft.occupation] } : { plof: "", current: "" };
-        const draftWithBaseline = { ...goalDraft, plof: baseline.plof || goalDraft.plof, current: baseline.current || goalDraft.current };
+        const baseline: { plof: AssistanceLevel; current: AssistanceLevel } = goalDraft.occupation
+          ? { plof: f.adlStatus.plof[goalDraft.occupation] ?? "", current: f.adlStatus.current[goalDraft.occupation] ?? "" }
+          : { plof: "", current: "" };
+        const draftWithBaseline: OTGoal = { ...goalDraft, plof: baseline.plof || goalDraft.plof, current: baseline.current || goalDraft.current };
         const preview = buildGoalStatement(draftWithBaseline);
         const wizardStep = GOAL_WIZARD_STEPS[goalWizardStep];
         const wizardOptions =
