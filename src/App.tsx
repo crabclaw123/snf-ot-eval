@@ -12,7 +12,7 @@ const PAGES = [
   ["patient", "Patient / Referral"],
   ["profile", "Occupational Profile"],
   ["environment", "Environment"],
-  ["function", "PLOF & Current Function"],
+  ["function", "Performance"],
   ["rom", "ROM"],
   ["strength", "Strength"],
   ["client", "Cognition & Performance Skills"],
