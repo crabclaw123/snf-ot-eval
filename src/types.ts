@@ -13,8 +13,8 @@ export type AssistanceLevel =
   | "Not Assessed"
   | "Not Applicable";
 
-export type FindingStatus = "WNL" | "WFL" | "Impaired" | "Not Assessed";
-export type SectionGGCode = "06" | "05" | "04" | "03" | "02" | "01" | "09" | "88";
+export type FindingStatus = "" | "WNL" | "WFL" | "Impaired" | "Not Assessed";
+export type SectionGGCode = "" | "06" | "05" | "04" | "03" | "02" | "01" | "09" | "88";
 
 export interface PatientInfo { patientName: string; medicalRecordNumber: string; dateOfBirth: string; evaluationDate: string; medicalDiagnosis: string; reasonForReferral: string; }
 export interface OccupationalProfile { summary: string; }
@@ -47,8 +47,8 @@ export interface EvaluationFormData {
 }
 export interface Evaluation { id: string; resumeCode: string; studentName: string; status: EvaluationStatus; createdAt: string; updatedAt: string; formData: EvaluationFormData; }
 
-const blankROMFinding = (): ROMFinding => ({ status: "Not Assessed", arom: "", prom: "", notes: "" });
-const blankStrengthFinding = (): StrengthFinding => ({ status: "Not Assessed", mmt: "", notes: "" });
+const blankROMFinding = (): ROMFinding => ({ status: "", arom: "", prom: "", notes: "" });
+const blankStrengthFinding = (): StrengthFinding => ({ status: "", mmt: "", notes: "" });
 export const MOVEMENTS = ["Shoulder flexion","Shoulder extension","Shoulder abduction","Shoulder external rotation","Shoulder internal rotation","Elbow flexion","Elbow extension","Forearm pronation","Forearm supination","Wrist flexion","Wrist extension","Wrist radial deviation","Wrist ulnar deviation"];
 
 export const createEmptyFormData = (): EvaluationFormData => {
@@ -64,7 +64,7 @@ export const createEmptyFormData = (): EvaluationFormData => {
     clientFactors:{orientedPerson:false,orientedPlace:false,orientedTime:false,orientedSituation:false,cognition:"",communication:"",vision:"",hearing:"",sensation:"",pain:"",coordination:"",balance:"",endurance:"",motorPlanning:"",functionalMobility:"",standardizedAssessments:"",assessmentFindings:""},
     clinicalAssessment:{assessmentSummary:"",prognosis:""},
     goalsPlanOfCare:{frequency:"",duration:"",treatmentInterventions:[],shortTermGoals:"",longTermGoals:"",dischargePlan:"",patientCaregiverEducation:""},
-    sectionGG:{eating:"09",oralHygiene:"09",toiletingHygiene:"09",showerBathing:"09",upperBodyDressing:"09",lowerBodyDressing:"09",footwear:"09",rolling:"09",sitToLying:"09",lyingToSitting:"09",sitToStand:"09",chairBedTransfer:"09",toiletTransfer:"09",walking10Feet:"09",walking50FeetTurn:"09",stairs:"09",ggNotes:""},
+    sectionGG:{eating:"",oralHygiene:"",toiletingHygiene:"",showerBathing:"",upperBodyDressing:"",lowerBodyDressing:"",footwear:"",rolling:"",sitToLying:"",lyingToSitting:"",sitToStand:"",chairBedTransfer:"",toiletTransfer:"",walking10Feet:"",walking50FeetTurn:"",stairs:"",ggNotes:""},
     signatureAttestation:{studentName:"",credentials:"",attestation:false,signatureDate:new Date().toISOString().slice(0,10)}
   };
 };
