@@ -111,7 +111,23 @@ export default function App() {
     setEvaluation(next); localStorage.setItem("snf-ot-eval:" + next.resumeCode, JSON.stringify(next));
   }
   function updateNestedADL(side: "plof" | "current", key: string, value: string) {
-    if (!evaluation || evaluation.status === "submitted") return;\n    const next = { ...evaluation, updatedAt: new Date().toISOString(), formData: { ...evaluation.formData, adlStatus: { ...evaluation.formData.adlStatus, [side]: { ...evaluation.formData.adlStatus[side], [key]: value } } } } as Evaluation;\n    setEvaluation(next); localStorage.setItem("snf-ot-eval:" + next.resumeCode, JSON.stringify(next));
+    if (!evaluation || evaluation.status === "submitted") return;
+    const next = {
+      ...evaluation,
+      updatedAt: new Date().toISOString(),
+      formData: {
+        ...evaluation.formData,
+        adlStatus: {
+          ...evaluation.formData.adlStatus,
+          [side]: {
+            ...evaluation.formData.adlStatus[side],
+            [key]: value,
+          },
+        },
+      },
+    } as Evaluation;
+    setEvaluation(next);
+    localStorage.setItem("snf-ot-eval:" + next.resumeCode, JSON.stringify(next));
   }
   function updateNested(section: "rom" | "strength", side: "right" | "left", movement: string, field: string, value: string) {
     if (!evaluation || evaluation.status === "submitted") return;
