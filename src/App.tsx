@@ -145,24 +145,23 @@ export default function App() {
   function renderFindingPage(section: "rom" | "strength") {
     const data = evaluation!.formData[section];
     const isROM = section === "rom";
-    return <PageCard title={isROM ? "Range of Motion" : "Strength"} help={isROM ? "Record the therapist's clinical finding first. Select Impaired when measurement is needed; select Not Assessed when the movement was not examined." : "Record the therapist's clinical finding first. Select Impaired to reveal MMT scoring; select Not Assessed when strength was not examined."}>
-      {(["right", "left"] as const).map(side => <Box key={side}><Typography variant="h6" sx={{ mb: 1 }}>{side === "right" ? "Right Upper Extremity" : "Left Upper Extremity"}</Typography><Stack spacing={1.5}>
-        {MOVEMENTS.map(m => {
-          const finding = data[side][m];
-          return <Card variant="outlined" key={m}><CardContent><Stack spacing={1.5}>
-            <Typography fontWeight={600}>{m}</Typography>
-            <SelectField label="Finding" value={finding.status} options={FINDING_OPTIONS} disabled={!!disabled} onChange={v => updateNested(section, side, m, "status", v)} />
-            {finding.status === "Impaired" && (isROM ? (() => {
-              const romFinding = finding as import("./types").ROMFinding;
-              return <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}><Field label="AROM (degrees)" value={romFinding.arom} disabled={!!disabled} onChange={v => updateNested(section, side, m, "arom", v)} /><Field label="PROM (degrees)" value={romFinding.prom} disabled={!!disabled} onChange={v => updateNested(section, side, m, "prom", v)} /></Stack>;
-            })() : (() => {
-              const strengthFinding = finding as import("./types").StrengthFinding;
-              return <SelectField label="MMT" value={strengthFinding.mmt} options={["0", "1", "2-", "2", "2+", "3-", "3", "3+", "4-", "4", "4+", "5"]} disabled={!!disabled} onChange={v => updateNested(section, side, m, "mmt", v)} />;
-            })())}
-            {finding.status === "Impaired" && <Field label="Notes" value={finding.notes} disabled={!!disabled} onChange={v => updateNested(section, side, m, "notes", v)} />}
-          </Stack></CardContent></Card>;
-        })}
-      </Stack></Box>)}
+    const renderFinding = (side: "right" | "left", movement: string) => {
+      const finding = data[side][movement];
+      return <Card variant="outlined"><CardContent><Stack spacing={1.5}>
+        <Typography fontWeight={700}>{side === "right" ? "Right side" : "Left side"}</Typography>
+        <SelectField label="Finding" value={finding.status} options={FINDING_OPTIONS} disabled={!!disabled} onChange={v => updateNested(section, side, movement, "status", v)} />
+        {finding.status === "Impaired" && (isROM ? (() => {
+          const romFinding = finding as import("./types").ROMFinding;
+          return <Stack spacing={1.5}><Field label="AROM (degrees)" value={romFinding.arom} disabled={!!disabled} onChange={v => updateNested(section, side, movement, "arom", v)} /><Field label="PROM (degrees)" value={romFinding.prom} disabled={!!disabled} onChange={v => updateNested(section, side, movement, "prom", v)} /></Stack>;
+        })() : (() => {
+          const strengthFinding = finding as import("./types").StrengthFinding;
+          return <SelectField label="MMT" value={strengthFinding.mmt} options={["0", "1", "2-", "2", "2+", "3-", "3", "3+", "4-", "4", "4+", "5"]} disabled={!!disabled} onChange={v => updateNested(section, side, movement, "mmt", v)} />;
+        })())}
+        {finding.status === "Impaired" && <Field label="Notes" value={finding.notes} disabled={!!disabled} onChange={v => updateNested(section, side, movement, "notes", v)} />}
+      </Stack></CardContent></Card>;
+    };
+    return <PageCard title={isROM ? "Range of Motion" : "Strength"} help="Each movement is documented separately for the right and left upper extremities.">
+      {MOVEMENTS.map(m => <Box key={m}><Typography variant="h6" sx={{ mb: 1 }}>{m}</Typography><Stack direction={{ xs: "column", md: "row" }} spacing={1.5}><Box sx={{ flex: 1 }}>{renderFinding("right", m)}</Box><Box sx={{ flex: 1 }}>{renderFinding("left", m)}</Box></Stack></Box>)}
       <Field label={isROM ? "ROM summary / clinical notes" : "Strength summary / clinical notes"} value={data.notes} disabled={!!disabled} onChange={v => updateSection(section, "notes", v)} multiline />
     </PageCard>;
   }
