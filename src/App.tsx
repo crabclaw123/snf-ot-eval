@@ -313,8 +313,6 @@ export default function App() {
         }
         return <PageCard title="Goals" help="Build measurable, occupation-based goals from the patient's documented baseline. Work through the guided phrase selections, then review the generated statement before adding it.">
           <Alert severity="info">The goal builder is designed to make you practice the pieces of a functional OT goal: occupation → target → functional problem → condition → measurement → timeframe.</Alert>
-          <Typography variant="h6">Overall occupational goal</Typography>
-          <Field label="What meaningful outcome is the patient working toward?" value={f.goalsPlanOfCare.overallGoal} disabled={!!disabled} onChange={v=>updateSection("goalsPlanOfCare","overallGoal",v)} multiline minRows={3} placeholder="Example: Return to completing morning self-care with the least amount of assistance needed for a safe discharge home." />
           <Button variant="contained" size="large" onClick={()=>{setGoalDraft(blankGoal());setGoalWizardStep(0);setGoalWizardOpen(true);}} disabled={!!disabled}>Open Guided Goal Builder</Button>
 
           <Dialog open={goalWizardOpen} onClose={()=>setGoalWizardOpen(false)} fullWidth maxWidth="md">
