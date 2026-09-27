@@ -11,11 +11,11 @@ import { ensureAnonymousAuth, generateResumeCode, getLastCode, loadEvaluation, s
 const PAGES = [
   ["patient", "Patient / Referral"],
   ["profile", "Occupational Profile"],
-  ["environment", "Environment / PLOF"],
-  ["function", "Current Function"],
+  ["environment", "Environment"],
+  ["function", "PLOF & Current Function"],
   ["rom", "ROM"],
   ["strength", "Strength"],
-  ["client", "Client Factors / Performance Skills"],
+  ["client", "Cognition & Performance Skills"],
   ["assessment", "Clinical Assessment"],
   ["goals", "Goals"],
   ["plan", "Plan of Care"],
@@ -41,7 +41,7 @@ const GG_OPTIONS: { code: SectionGGCode; label: string }[] = [
 const ADLS: [string, string][] = [
   ["eating", "Eating"], ["grooming", "Grooming"], ["bathing", "Bathing"], ["upperBodyDressing", "Upper-body dressing"],
   ["lowerBodyDressing", "Lower-body dressing"], ["toileting", "Toileting"], ["toiletTransfer", "Toilet transfer"],
-  ["showerTransfer", "Shower transfer"], ["bedMobility", "Bed mobility"], ["transfers", "Transfers"], ["functionalMobility", "Functional mobility"],
+  ["showerTransfer", "Shower transfer"], ["bedMobility", "Bed mobility"], ["transfers", "Transfers"], ["functionalMobility", "Functional mobility / ambulation"],
 ];
 function Field({ label, value, onChange, disabled, multiline = false, minRows = 3, placeholder }: { label: string; value: string; onChange: (v: string) => void; disabled: boolean; multiline?: boolean; minRows?: number; placeholder?: string }) {
   return <TextField fullWidth label={label} value={value} onChange={e => onChange(e.target.value)} disabled={disabled} multiline={multiline} minRows={multiline ? minRows : undefined} placeholder={placeholder} />;
@@ -70,7 +70,7 @@ export default function App() {
     const f = evaluation.formData;
     const sections = [
       f.patientInfo.patientName || f.patientInfo.reasonForReferral, f.occupationalProfile.summary,
-      f.environmentPLOF.priorLivingEnvironment || f.environmentPLOF.plofSummary, Object.values(f.adlStatus.current).some(v => v !== "Not Assessed"),
+      f.environmentPLOF.priorLivingEnvironment || f.environmentPLOF.equipment, Object.values(f.adlStatus.current).some(v => v !== "Not Assessed"),
       Object.values(f.rom.right).some(v => v.status !== "Not Assessed") || Object.values(f.rom.left).some(v => v.status !== "Not Assessed"),
       Object.values(f.strength.right).some(v => v.status !== "Not Assessed") || Object.values(f.strength.left).some(v => v.status !== "Not Assessed"),
       Object.values(f.clientFactors).some(v => Array.isArray(v) ? v.length : v), f.clinicalAssessment.assessmentSummary,
