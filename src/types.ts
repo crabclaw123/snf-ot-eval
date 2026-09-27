@@ -36,7 +36,31 @@ export interface StrengthFinding { status: FindingStatus; mmt: string; notes: st
 export interface StrengthAssessment { right: Record<string, StrengthFinding>; left: Record<string, StrengthFinding>; notes: string; }
 export interface ClientFactors { orientedPerson: boolean; orientedPlace: boolean; orientedTime: boolean; orientedSituation: boolean; cognition: string; communication: string; vision: string; hearing: string; sensation: string; pain: string; coordination: string; balance: string; endurance: string; motorPlanning: string; functionalMobility: string; standardizedAssessments: string; assessmentFindings: string; }
 export interface ClinicalAssessment { assessmentSummary: string; prognosis: string; }
-export interface GoalsPlanOfCare { frequency: string; duration: string; treatmentInterventions: string[]; shortTermGoals: string; longTermGoals: string; dischargePlan: string; patientCaregiverEducation: string; }
+export type GoalType = "Short-term" | "Long-term";
+export interface OTGoal {
+  id: string;
+  type: GoalType;
+  occupation: string;
+  plof: AssistanceLevel;
+  current: AssistanceLevel;
+  target: AssistanceLevel;
+  performanceProblem: string;
+  condition: string;
+  measurableCriterion: string;
+  timeframe: string;
+  goalStatement: string;
+}
+export interface GoalsPlanOfCare {
+  frequency: string;
+  duration: string;
+  treatmentInterventions: string[];
+  shortTermGoals: string;
+  longTermGoals: string;
+  overallGoal: string;
+  goals: OTGoal[];
+  dischargePlan: string;
+  patientCaregiverEducation: string;
+}
 export interface SectionGG { eating: SectionGGCode; oralHygiene: SectionGGCode; toiletingHygiene: SectionGGCode; showerBathing: SectionGGCode; upperBodyDressing: SectionGGCode; lowerBodyDressing: SectionGGCode; footwear: SectionGGCode; rolling: SectionGGCode; sitToLying: SectionGGCode; lyingToSitting: SectionGGCode; sitToStand: SectionGGCode; chairBedTransfer: SectionGGCode; toiletTransfer: SectionGGCode; walking10Feet: SectionGGCode; walking50FeetTurn: SectionGGCode; stairs: SectionGGCode; ggNotes: string; }
 export interface SignatureAttestation { studentName: string; credentials: string; attestation: boolean; signatureDate: string; }
 
@@ -63,7 +87,7 @@ export const createEmptyFormData = (): EvaluationFormData => {
     rom:{right:makeROM(),left:makeROM(),notes:""}, strength:{right:makeStrength(),left:makeStrength(),notes:""},
     clientFactors:{orientedPerson:false,orientedPlace:false,orientedTime:false,orientedSituation:false,cognition:"",communication:"",vision:"",hearing:"",sensation:"",pain:"",coordination:"",balance:"",endurance:"",motorPlanning:"",functionalMobility:"",standardizedAssessments:"",assessmentFindings:""},
     clinicalAssessment:{assessmentSummary:"",prognosis:""},
-    goalsPlanOfCare:{frequency:"",duration:"",treatmentInterventions:[],shortTermGoals:"",longTermGoals:"",dischargePlan:"",patientCaregiverEducation:""},
+    goalsPlanOfCare:{frequency:"",duration:"",treatmentInterventions:[],shortTermGoals:"",longTermGoals:"",overallGoal:"",goals:[],dischargePlan:"",patientCaregiverEducation:""},
     sectionGG:{eating:"",oralHygiene:"",toiletingHygiene:"",showerBathing:"",upperBodyDressing:"",lowerBodyDressing:"",footwear:"",rolling:"",sitToLying:"",lyingToSitting:"",sitToStand:"",chairBedTransfer:"",toiletTransfer:"",walking10Feet:"",walking50FeetTurn:"",stairs:"",ggNotes:""},
     signatureAttestation:{studentName:"",credentials:"",attestation:false,signatureDate:new Date().toISOString().slice(0,10)}
   };
@@ -86,7 +110,7 @@ export function normalizeEvaluation(raw: Evaluation): Evaluation {
       adlStatus:{...defaults.adlStatus,plof:{...oldPLOF,...oldADL?.plof},current:{...currentADL,...oldADL?.current},otherOccupations:oldADL.otherOccupations??"",activityTolerance:oldADL.activityTolerance??"",cueingNeeded:oldADL.cueingNeeded??"",safetyAwareness:oldADL.safetyAwareness??"",observations:oldADL.observations??""},
       rom:{...defaults.rom,...old?.rom}, strength:{...defaults.strength,...old?.strength}, clientFactors:{...defaults.clientFactors,...old?.clientFactors},
       clinicalAssessment:{...defaults.clinicalAssessment,assessmentSummary:old?.clinicalAssessment?.assessmentSummary ?? [old?.clinicalAssessment?.strengths,old?.clinicalAssessment?.impairments,old?.clinicalAssessment?.activityLimitations,old?.clinicalAssessment?.participationRestrictions,old?.clinicalAssessment?.occupationalPerformanceProblem,old?.clinicalAssessment?.clinicalRationale,old?.clinicalAssessment?.skilledNeed].filter(Boolean).join("\n"),prognosis:old?.clinicalAssessment?.prognosis??""},
-      goalsPlanOfCare:{...defaults.goalsPlanOfCare,...old?.goalsPlanOfCare}, sectionGG:{...defaults.sectionGG,...old?.sectionGG}, signatureAttestation:{...defaults.signatureAttestation,...old?.signatureAttestation}
+      goalsPlanOfCare:{...defaults.goalsPlanOfCare,...old?.goalsPlanOfCare,overallGoal:old?.goalsPlanOfCare?.overallGoal??"",goals:Array.isArray(old?.goalsPlanOfCare?.goals)?old.goalsPlanOfCare.goals:[]}, sectionGG:{...defaults.sectionGG,...old?.sectionGG}, signatureAttestation:{...defaults.signatureAttestation,...old?.signatureAttestation}
     }
   };
 }
