@@ -1,6 +1,7 @@
 export type EvaluationStatus = "draft" | "submitted";
 
 export type AssistanceLevel =
+  | ""
   | "Independent"
   | "Modified Independent"
   | "Supervision"
@@ -33,7 +34,7 @@ export interface ROMFinding { status: FindingStatus; arom: string; prom: string;
 export interface ROMAssessment { right: Record<string, ROMFinding>; left: Record<string, ROMFinding>; notes: string; }
 export interface StrengthFinding { status: FindingStatus; mmt: string; notes: string; }
 export interface StrengthAssessment { right: Record<string, StrengthFinding>; left: Record<string, StrengthFinding>; notes: string; }
-export interface ClientFactors { orientedX4: boolean; cognition: string; communication: string; vision: string; hearing: string; sensation: string; pain: string; coordination: string; balance: string; endurance: string; motorPlanning: string; functionalMobility: string; standardizedAssessments: string; assessmentFindings: string; }
+export interface ClientFactors { orientedPerson: boolean; orientedPlace: boolean; orientedTime: boolean; orientedSituation: boolean; cognition: string; communication: string; vision: string; hearing: string; sensation: string; pain: string; coordination: string; balance: string; endurance: string; motorPlanning: string; functionalMobility: string; standardizedAssessments: string; assessmentFindings: string; }
 export interface ClinicalAssessment { assessmentSummary: string; prognosis: string; }
 export interface GoalsPlanOfCare { frequency: string; duration: string; treatmentInterventions: string[]; shortTermGoals: string; longTermGoals: string; dischargePlan: string; patientCaregiverEducation: string; }
 export interface SectionGG { eating: SectionGGCode; oralHygiene: SectionGGCode; toiletingHygiene: SectionGGCode; showerBathing: SectionGGCode; upperBodyDressing: SectionGGCode; lowerBodyDressing: SectionGGCode; footwear: SectionGGCode; rolling: SectionGGCode; sitToLying: SectionGGCode; lyingToSitting: SectionGGCode; sitToStand: SectionGGCode; chairBedTransfer: SectionGGCode; toiletTransfer: SectionGGCode; walking10Feet: SectionGGCode; walking50FeetTurn: SectionGGCode; stairs: SectionGGCode; ggNotes: string; }
@@ -53,14 +54,14 @@ export const MOVEMENTS = ["Shoulder flexion","Shoulder extension","Shoulder abdu
 export const createEmptyFormData = (): EvaluationFormData => {
   const makeROM = () => Object.fromEntries(MOVEMENTS.map(m => [m, blankROMFinding()]));
   const makeStrength = () => Object.fromEntries(MOVEMENTS.map(m => [m, blankStrengthFinding()]));
-  const makeADLs = (): Record<string, AssistanceLevel> => Object.fromEntries(["eating","grooming","bathing","upperBodyDressing","lowerBodyDressing","toileting","toiletTransfer","showerTransfer","bedMobility","transfers","functionalMobility"].map(m => [m, "Not Assessed"]));
+  const makeADLs = (): Record<string, AssistanceLevel> => Object.fromEntries(["eating","grooming","bathing","upperBodyDressing","lowerBodyDressing","toileting","toiletTransfer","showerTransfer","bedMobility","transfers","functionalMobility"].map(m => [m, ""]));
   return {
     patientInfo:{patientName:"",medicalRecordNumber:"MRN-100001",dateOfBirth:"",evaluationDate:new Date().toISOString().slice(0,10),medicalDiagnosis:"",reasonForReferral:""},
     occupationalProfile:{summary:""}, environmentPLOF:{priorLivingEnvironment:"",equipment:"",plofSummary:""},
     medicalStatus:{precautions:[],weightBearing:"",painLocation:"",painRating:"",vitals:"",medicationsRelevant:"",linesTubesDrains:"",skinWounds:"",medicalStability:"",notes:""},
     adlStatus:{plof:makeADLs(),current:makeADLs(),otherOccupations:"",activityTolerance:"",cueingNeeded:"",safetyAwareness:"",observations:""},
     rom:{right:makeROM(),left:makeROM(),notes:""}, strength:{right:makeStrength(),left:makeStrength(),notes:""},
-    clientFactors:{orientedX4:false,cognition:"",communication:"",vision:"",hearing:"",sensation:"",pain:"",coordination:"",balance:"",endurance:"",motorPlanning:"",functionalMobility:"",standardizedAssessments:"",assessmentFindings:""},
+    clientFactors:{orientedPerson:false,orientedPlace:false,orientedTime:false,orientedSituation:false,cognition:"",communication:"",vision:"",hearing:"",sensation:"",pain:"",coordination:"",balance:"",endurance:"",motorPlanning:"",functionalMobility:"",standardizedAssessments:"",assessmentFindings:""},
     clinicalAssessment:{assessmentSummary:"",prognosis:""},
     goalsPlanOfCare:{frequency:"",duration:"",treatmentInterventions:[],shortTermGoals:"",longTermGoals:"",dischargePlan:"",patientCaregiverEducation:""},
     sectionGG:{eating:"09",oralHygiene:"09",toiletingHygiene:"09",showerBathing:"09",upperBodyDressing:"09",lowerBodyDressing:"09",footwear:"09",rolling:"09",sitToLying:"09",lyingToSitting:"09",sitToStand:"09",chairBedTransfer:"09",toiletTransfer:"09",walking10Feet:"09",walking50FeetTurn:"09",stairs:"09",ggNotes:""},
@@ -72,8 +73,8 @@ export function normalizeEvaluation(raw: Evaluation): Evaluation {
   const defaults = createEmptyFormData();
   const old = raw.formData as any;
   const oldADL = old?.adlStatus ?? {};
-  const oldPLOF: Record<string, AssistanceLevel> = Object.fromEntries(Object.keys(defaults.adlStatus.plof).map(k => [k, (oldADL[k] ?? "Not Assessed") as AssistanceLevel]));
-  const currentADL: Record<string, AssistanceLevel> = Object.fromEntries(Object.keys(defaults.adlStatus.current).map(k => [k, "Not Assessed" as AssistanceLevel]));
+  const oldPLOF: Record<string, AssistanceLevel> = Object.fromEntries(Object.keys(defaults.adlStatus.plof).map(k => [k, (oldADL[k] ?? "") as AssistanceLevel]));
+  const currentADL: Record<string, AssistanceLevel> = Object.fromEntries(Object.keys(defaults.adlStatus.current).map(k => [k, (oldADL?.current?.[k] ?? "") as AssistanceLevel]));
   return {
     ...raw,
     formData:{
