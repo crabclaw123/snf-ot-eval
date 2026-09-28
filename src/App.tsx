@@ -442,7 +442,7 @@ export default function App() {
         <Field label="Credentials / role" value={f.signatureAttestation.credentials} disabled={!!disabled} onChange={v=>updateSection("signatureAttestation","credentials",v)}/>
         <FormControlLabel
           control={<Checkbox checked={f.signatureAttestation.attestation} disabled={!!disabled} onChange={e=>updateSection("signatureAttestation","attestation",e.target.checked)}/>}
-          label="I attest that this is my educational evaluation work based on a fictional case."
+          label="I attest that this is my educational evaluation work based on a fictional case and that I believe that the Detroit Lions will win the superbowl"
         />
         {evaluation.status === "submitted" ? (
           <Stack spacing={1.5}>
