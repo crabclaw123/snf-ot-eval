@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { jsPDF } from "jspdf";
 import {
   Alert, Box, Button, Card, CardContent, Checkbox, Chip, Container, Dialog, DialogActions, DialogContent, DialogTitle, Divider,
   FormControl, FormControlLabel, InputLabel, LinearProgress, MenuItem, Select,
@@ -106,6 +107,189 @@ function SelectField({ label, value, options, onChange, disabled }: { label: str
 }
 function PageCard({ title, children, help }: { title: string; children: React.ReactNode; help?: string }) {
   return <Card><CardContent><Stack spacing={2}><Typography variant="h5" fontWeight={700}>{title}</Typography>{help && <Typography color="text.secondary">{help}</Typography>}{children}</Stack></CardContent></Card>;
+}
+
+function exportEvaluationPdf(evaluation: Evaluation) {
+  const doc = new jsPDF({ unit: "pt", format: "letter" });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 42;
+  const usableWidth = pageWidth - margin * 2;
+  let y = 48;
+
+  const safe = (value: unknown): string => String(value ?? "")
+    .replace(/[—–]/g, "-")
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/\u00a0/g, " ")
+    .replace(/[^\x09\x0A\x0D\x20-\x7E]/g, "?");
+
+  const ensureSpace = (height: number) => {
+    if (y + height > pageHeight - margin) {
+      doc.addPage();
+      y = 48;
+    }
+  };
+
+  const addText = (text: string, size = 10, bold = false, indent = 0) => {
+    const clean = safe(text).trim();
+    if (!clean) return;
+    doc.setFont("helvetica", bold ? "bold" : "normal");
+    doc.setFontSize(size);
+    const lines = doc.splitTextToSize(clean, usableWidth - indent);
+    const lineHeight = size + 4;
+    ensureSpace(lines.length * lineHeight + 4);
+    doc.text(lines, margin + indent, y);
+    y += lines.length * lineHeight + 4;
+  };
+
+  const addSection = (title: string) => {
+    ensureSpace(34);
+    y += 8;
+    doc.setDrawColor(210, 210, 210);
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 18;
+    addText(title, 13, true);
+    y += 2;
+  };
+
+  const addField = (label: string, value: unknown) => {
+    const text = safe(value).trim();
+    if (!text || text === "false" || text === "0") return;
+    addText(label, 9, true);
+    addText(text, 10, false, 8);
+  };
+
+  const labelize = (key: string) => key
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/^./, c => c.toUpperCase());
+
+  const f = evaluation.formData;
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(18);
+  doc.text("SNF OT Initial Evaluation", margin, y);
+  y += 22;
+  addText(`Status: ${evaluation.status === "submitted" ? "SUBMITTED" : "DRAFT"}`, 10, true);
+  addText(`Student: ${evaluation.studentName}    Resume code: ${evaluation.resumeCode}`, 9);
+  addText(`Generated: ${new Date().toLocaleString()}`, 9);
+  y += 4;
+
+  addSection("1. Patient / Referral");
+  addField("Patient name", f.patientInfo.patientName);
+  addField("Medical record number", f.patientInfo.medicalRecordNumber);
+  addField("Date of birth", f.patientInfo.dateOfBirth);
+  addField("Evaluation date", f.patientInfo.evaluationDate);
+  addField("Medical diagnosis", f.patientInfo.medicalDiagnosis);
+  addField("Reason for OT referral", f.patientInfo.reasonForReferral);
+  addField("Weight-bearing status", f.medicalStatus.weightBearing);
+  addField("Precautions", f.medicalStatus.precautions.join(", "));
+
+  addSection("2. Occupational Profile");
+  addField("Occupational profile", f.occupationalProfile.summary);
+
+  addSection("3. Environment");
+  addField("Prior living environment", f.environmentPLOF.priorLivingEnvironment);
+  addField("Current equipment / DME / assistive devices", f.environmentPLOF.equipment);
+
+  addSection("4. Medical / Clinical Status");
+  addField("Pain location", f.medicalStatus.painLocation);
+  addField("Pain rating", f.medicalStatus.painRating);
+  addField("Vitals", f.medicalStatus.vitals);
+  addField("Relevant medications", f.medicalStatus.medicationsRelevant);
+  addField("Lines / tubes / drains", f.medicalStatus.linesTubesDrains);
+  addField("Skin / wounds", f.medicalStatus.skinWounds);
+  addField("Medical stability", f.medicalStatus.medicalStability);
+  addField("Notes", f.medicalStatus.notes);
+
+  addSection("5. Performance / ADL Status");
+  addText("Prior level of function", 10, true);
+  for (const [key, label] of ADLS) addField(label, f.adlStatus.plof[key]);
+  addText("Current performance", 10, true);
+  for (const [key, label] of ADLS) addField(label, f.adlStatus.current[key]);
+  addField("Other occupations", f.adlStatus.otherOccupations);
+  addField("Activity tolerance", f.adlStatus.activityTolerance);
+  addField("Cueing needed", f.adlStatus.cueingNeeded);
+  addField("Safety awareness", f.adlStatus.safetyAwareness);
+  addField("Observations", f.adlStatus.observations);
+
+  addSection("6. Range of Motion");
+  for (const side of ["right", "left"] as const) {
+    addText(side === "right" ? "Right upper extremity" : "Left upper extremity", 10, true);
+    for (const movement of MOVEMENTS) {
+      const finding = f.rom[side][movement];
+      if (finding.status || finding.arom || finding.prom || finding.notes) {
+        addField(movement, `${finding.status || "Not documented"}${finding.arom ? ` | AROM: ${finding.arom} deg` : ""}${finding.prom ? ` | PROM: ${finding.prom} deg` : ""}${finding.notes ? ` | ${finding.notes}` : ""}`);
+      }
+    }
+  }
+  addField("ROM summary / clinical notes", f.rom.notes);
+
+  addSection("7. Strength");
+  for (const side of ["right", "left"] as const) {
+    addText(side === "right" ? "Right upper extremity" : "Left upper extremity", 10, true);
+    for (const movement of MOVEMENTS) {
+      const finding = f.strength[side][movement];
+      if (finding.status || finding.mmt || finding.notes) {
+        addField(movement, `${finding.status || "Not documented"}${finding.mmt ? ` | MMT: ${finding.mmt}` : ""}${finding.notes ? ` | ${finding.notes}` : ""}`);
+      }
+    }
+  }
+  addField("Strength summary / clinical notes", f.strength.notes);
+
+  addSection("8. Cognition, Communication & Sensory Skills");
+  addField("Orientation", [
+    f.clientFactors.orientedPerson ? "Person" : "",
+    f.clientFactors.orientedPlace ? "Place" : "",
+    f.clientFactors.orientedTime ? "Time" : "",
+    f.clientFactors.orientedSituation ? "Situation" : "",
+  ].filter(Boolean).join(", ") || "Not documented");
+  for (const [key, value] of Object.entries(f.clientFactors)) {
+    if (typeof value === "string" && value.trim()) addField(labelize(key), value);
+  }
+
+  addSection("9. Clinical Assessment / OT Analysis");
+  addField("Assessment / clinical impression", f.clinicalAssessment.assessmentSummary);
+  addField("Rehabilitation prognosis", f.clinicalAssessment.prognosis);
+
+  addSection("10. Goals");
+  if (f.goalsPlanOfCare.goals.length) {
+    f.goalsPlanOfCare.goals.forEach((goal, index) => {
+      addText(`${goal.type} Goal ${index + 1}`, 10, true);
+      addText(goal.goalStatement);
+      addField("Occupation", goal.occupation);
+      addField("Baseline", goal.current);
+      addField("Target", goal.target);
+      addField("Condition", goal.condition);
+      addField("Measurement", goal.measurableCriterion);
+      addField("Timeframe", goal.timeframe);
+    });
+  } else {
+    addText("No guided goals have been added.");
+  }
+
+  addSection("11. Plan of Care");
+  addField("Frequency", f.goalsPlanOfCare.frequency);
+  addField("Duration", f.goalsPlanOfCare.duration);
+  addField("Skilled interventions", f.goalsPlanOfCare.treatmentInterventions.join(", "));
+  addField("Patient / caregiver education", f.goalsPlanOfCare.patientCaregiverEducation);
+  addField("Discharge planning / anticipated disposition", f.goalsPlanOfCare.dischargePlan);
+
+  addSection("12. Section GG");
+  for (const [key, value] of Object.entries(f.sectionGG)) {
+    if (key !== "ggNotes" && value) addField(labelize(key), value);
+  }
+  addField("Section GG notes / reasoning", f.sectionGG.ggNotes);
+
+  addSection("13. Review / Attestation");
+  addField("Student name", f.signatureAttestation.studentName);
+  addField("Credentials / role", f.signatureAttestation.credentials);
+  addField("Attestation completed", f.signatureAttestation.attestation ? "Yes" : "No");
+  addField("Attestation date", f.signatureAttestation.signatureDate);
+  addText("Educational demonstration. All patient information is fictional.", 8, false);
+
+  const patient = safe(f.patientInfo.patientName).replace(/[^a-zA-Z0-9_-]+/g, "_") || "Evaluation";
+  doc.save(`SNF_OT_Evaluation_${patient}_${evaluation.status === "submitted" ? "Final" : "Draft"}.pdf`);
 }
 
 export default function App() {
@@ -480,7 +664,12 @@ export default function App() {
     {message && <Alert severity={message.includes("saved") || message.includes("submitted") ? "success" : "error"}>{message}</Alert>}
     <Stack direction={{xs:"column-reverse",sm:"row"}} spacing={1.5} justifyContent="space-between">
       <Button variant="text" onClick={startNewEvaluation} disabled={busy}>Home / Exit</Button>
-      <Button variant="outlined" onClick={saveDraft} disabled={!!disabled}>Save Draft</Button>
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+        <Button variant="outlined" onClick={() => evaluation && exportEvaluationPdf(evaluation)} disabled={!evaluation || busy}>
+          Download PDF
+        </Button>
+        <Button variant="outlined" onClick={saveDraft} disabled={!!disabled}>Save Draft</Button>
+      </Stack>
     </Stack>
 
     <Dialog open={submitDialogOpen} onClose={() => !busy && setSubmitDialogOpen(false)} maxWidth="sm" fullWidth>
