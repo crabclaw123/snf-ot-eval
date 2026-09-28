@@ -1,706 +1,698 @@
 import { useEffect, useMemo, useState } from "react";
+import { jsPDF } from "jspdf";
 import {
-  Alert,
-  Box,
-  Button,
-  Card,
-  CardContent,
-  Checkbox,
-  Chip,
-  Container,
-  Divider,
-  FormControl,
-  FormControlLabel,
-  FormGroup,
-  InputLabel,
-  LinearProgress,
-  MenuItem,
-  Select,
-  Stack,
-  TextField,
-  Typography,
+  Alert, Box, Button, Card, CardContent, Checkbox, Chip, Container, Dialog, DialogActions, DialogContent, DialogTitle, Divider,
+  FormControl, FormControlLabel, InputLabel, LinearProgress, MenuItem, Select,
+  Stack, TextField, Typography,
 } from "@mui/material";
-import type { Evaluation, EvaluationFormData, AssistanceLevel, SectionGGCode } from "./types";
-import {
-  createEmptyFormData,
-  normalizeEvaluation,
-} from "./types";
-import {
-  ensureAnonymousAuth,
-  generateResumeCode,
-  getLastCode,
-  loadEvaluation,
-  saveEvaluation,
-} from "./storage";
+import type { AssistanceLevel, Evaluation, EvaluationFormData, FindingStatus, GoalType, OTGoal, SectionGGCode } from "./types";
+import { createEmptyFormData, normalizeEvaluation, MOVEMENTS } from "./types";
+import { ensureAnonymousAuth, generateResumeCode, getLastCode, loadEvaluation, saveEvaluation } from "./storage";
 
-const GG_OPTIONS: { code: SectionGGCode; label: string }[] = [
-  { code: "06", label: "06 — Independent" },
-  { code: "05", label: "05 — Setup or clean-up assistance" },
-  { code: "04", label: "04 — Supervision or touching assistance" },
-  { code: "03", label: "03 — Partial/moderate assistance" },
-  { code: "02", label: "02 — Substantial/maximal assistance" },
-  { code: "01", label: "01 — Dependent" },
-  { code: "09", label: "09 — Not applicable / not attempted for educational exercise" },
-  { code: "88", label: "88 — Not attempted due to medical/safety concern" },
-];
+const PAGES = [
+  ["patient", "Patient / Referral"],
+  ["profile", "Occupational Profile"],
+  ["environment", "Environment"],
+  ["function", "Performance"],
+  ["rom", "ROM"],
+  ["strength", "Strength"],
+  ["client", "Cognition, Communication & Sensory Skills"],
+  ["assessment", "Clinical Assessment"],
+  ["goals", "Goals"],
+  ["plan", "Plan of Care"],
+  ["gg", "Section GG"],
+  ["review", "Review / Attestation"],
+] as const;
+type PageId = typeof PAGES[number][0];
 
 const ASSISTANCE_OPTIONS: AssistanceLevel[] = [
-  "Independent",
-  "Modified Independent",
-  "Supervision",
-  "Contact Guard Assist",
-  "Minimal Assist",
-  "Moderate Assist",
-  "Maximal Assist",
-  "Dependent",
-  "Not Tested",
-  "Not Applicable",
+  "Independent", "Modified Independent", "Supervision", "Contact Guard Assist",
+  "Minimal Assist", "Moderate Assist", "Maximal Assist", "Dependent",
+  "Not Assessed", "Not Applicable",
 ];
-
-const PRECAUTIONS = [
-  "Fall risk",
-  "Hip precautions",
-  "Spinal precautions",
-  "Aspiration precautions",
-  "Contact precautions",
-  "Seizure precautions",
-  "Skin / wound precautions",
-  "Other",
+const FINDING_OPTIONS: FindingStatus[] = ["WNL", "WFL", "Impaired", "Not Assessed"];
+const PRECAUTIONS = ["Fall risk", "Hip precautions", "Spinal precautions", "Aspiration precautions", "Contact precautions", "Seizure precautions", "Skin / wound precautions", "Other"];
+const INTERVENTIONS = ["ADL retraining", "Functional mobility / transfer training", "Therapeutic exercise", "Therapeutic activity", "Balance training", "Cognitive / compensatory strategy training", "Neuromuscular re-education", "Energy conservation", "Adaptive equipment training", "Caregiver education", "Discharge planning"];
+const GG_OPTIONS: { code: SectionGGCode; label: string }[] = [
+  { code: "06", label: "06 — Independent" }, { code: "05", label: "05 — Setup or clean-up assistance" },
+  { code: "04", label: "04 — Supervision or touching assistance" }, { code: "03", label: "03 — Partial/moderate assistance" },
+  { code: "02", label: "02 — Substantial/maximal assistance" }, { code: "01", label: "01 — Dependent" },
+  { code: "09", label: "09 — Not applicable / not attempted" }, { code: "88", label: "88 — Not attempted due to medical/safety concern" },
 ];
+const GOAL_TYPES: GoalType[] = ["Short-term", "Long-term"];
+const GOAL_TIMEFRAMES = ["1 week", "2 weeks", "3 weeks", "4 weeks", "6 weeks", "8 weeks", "By discharge"];
+const GOAL_WIZARD_STEPS = [
+  { key: "occupation", title: "1. Occupation / activity", help: "Choose the meaningful occupation you are addressing." },
+  { key: "target", title: "2. Target performance level", help: "Choose the functional level you want the patient to achieve." },
+  { key: "performanceProblem", title: "3. Functional performance problem", help: "Choose the occupational reason the goal is needed." },
+  { key: "condition", title: "4. Condition / context", help: "Choose the conditions under which the patient will perform." },
+  { key: "measurableCriterion", title: "5. Measurable criterion", help: "Choose how successful performance will be measured." },
+  { key: "timeframe", title: "6. Timeframe", help: "Choose when the patient is expected to meet the goal." },
+] as const;
 
-const COGNITION = [
-  "Intact",
-  "Impaired attention",
-  "Impaired memory",
-  "Impaired executive function",
-  "Impaired problem solving",
-  "Impaired safety awareness",
-  "Disorientation",
-  "Delirium / fluctuating status",
+const GOAL_PHRASES: Record<string, string[]> = {
+  performanceProblem: [
+    "improve independence with daily self-care",
+    "increase safety during functional mobility",
+    "improve independence with toileting",
+    "improve independence with dressing",
+    "improve independence with bathing",
+    "support safe discharge to the prior living environment",
+    "reduce caregiver burden during daily routines",
+    "improve participation in a meaningful daily routine",
+  ],
+  condition: [
+    "with no more than 1 verbal cue",
+    "with no more than 2 verbal cues",
+    "using the least restrictive assistive device",
+    "using adaptive equipment as needed",
+    "with appropriate safety awareness",
+    "with setup assistance only",
+    "without loss of balance",
+    "while maintaining prescribed precautions",
+    "with supervision for safety",
+  ],
+  measurableCriterion: [
+    "in 4 out of 5 observed opportunities",
+    "in 3 consecutive treatment sessions",
+    "with 90% task completion",
+    "with no more than minimal cueing",
+    "with no more than supervision",
+    "without physical assistance",
+    "with consistent carryover across sessions",
+  ],
+};
+
+function blankGoal(): OTGoal {
+  return { id: "", type: "Short-term", occupation: "", plof: "", current: "", target: "", performanceProblem: "", condition: "", measurableCriterion: "", timeframe: "", goalStatement: "" };
+}
+function buildGoalStatement(goal: OTGoal): string {
+  if (!goal.occupation || !goal.target) return "";
+  const problem = goal.performanceProblem.trim() || "improve occupational performance";
+  const condition = goal.condition.trim() ? ` while ${goal.condition.trim()}` : "";
+  const measure = goal.measurableCriterion.trim() ? ` as demonstrated by ${goal.measurableCriterion.trim()}` : "";
+  const timeframe = goal.timeframe ? ` within ${goal.timeframe}` : "";
+  return `Patient will improve ${goal.occupation.toLowerCase()} from ${goal.current || "current documented level"} to ${goal.target.toLowerCase()}${condition} in order to ${problem}${measure}${timeframe}.`;
+}
+const ADLS: [string, string][] = [
+  ["eating", "Eating"], ["grooming", "Grooming"], ["bathing", "Bathing"], ["upperBodyDressing", "Upper-body dressing"],
+  ["lowerBodyDressing", "Lower-body dressing"], ["toileting", "Toileting"], ["toiletTransfer", "Toilet transfer"],
+  ["showerTransfer", "Shower transfer"], ["bedMobility", "Bed mobility"], ["transfers", "Transfers"], ["functionalMobility", "Functional mobility / ambulation"],
 ];
-
-const PSYCHOSOCIAL = [
-  "Anxiety",
-  "Depression",
-  "Fear of falling",
-  "Low motivation",
-  "Frustration",
-  "Social isolation",
-  "Adjustment to illness",
-  "Behavioral concerns",
-];
-
-const INTERVENTIONS = [
-  "ADL retraining",
-  "Functional mobility / transfer training",
-  "Therapeutic exercise",
-  "Therapeutic activity",
-  "Balance training",
-  "Cognitive / compensatory strategy training",
-  "Neuromuscular re-education",
-  "Energy conservation",
-  "Adaptive equipment training",
-  "Caregiver education",
-  "Discharge planning",
-];
-
-type Screen = "home" | "evaluation";
-
-function SelectField({
-  label,
-  value,
-  options,
-  disabled,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  options: string[];
-  disabled: boolean;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <FormControl fullWidth disabled={disabled}>
-      <InputLabel>{label}</InputLabel>
-      <Select value={value} label={label} onChange={(e) => onChange(e.target.value)}>
-        {options.map((option) => <MenuItem key={option} value={option}>{option}</MenuItem>)}
-      </Select>
-    </FormControl>
-  );
+function Field({ label, value, onChange, disabled, multiline = false, minRows = 3, placeholder }: { label: string; value: string; onChange: (v: string) => void; disabled: boolean; multiline?: boolean; minRows?: number; placeholder?: string }) {
+  return <TextField fullWidth label={label} value={value} onChange={e => onChange(e.target.value)} disabled={disabled} multiline={multiline} minRows={multiline ? minRows : undefined} placeholder={placeholder} />;
+}
+function SelectField({ label, value, options, onChange, disabled }: { label: string; value: string; options: string[]; onChange: (v: string) => void; disabled: boolean }) {
+  return <FormControl fullWidth disabled={disabled}><InputLabel shrink>{label}</InputLabel><Select displayEmpty value={value} label={label} renderValue={selected => selected || <span style={{ color: "#777" }}>Select...</span>} onChange={e => onChange(e.target.value)}><MenuItem value=""><em>Not assessed</em></MenuItem>{options.map(o => <MenuItem key={o} value={o}>{o}</MenuItem>)}</Select></FormControl>;
+}
+function PageCard({ title, children, help }: { title: string; children: React.ReactNode; help?: string }) {
+  return <Card><CardContent><Stack spacing={2}><Typography variant="h5" fontWeight={700}>{title}</Typography>{help && <Typography color="text.secondary">{help}</Typography>}{children}</Stack></CardContent></Card>;
 }
 
-function CheckboxGroup({
-  label,
-  options,
-  values,
-  disabled,
-  onChange,
-}: {
-  label: string;
-  options: string[];
-  values: string[];
-  disabled: boolean;
-  onChange: (values: string[]) => void;
-}) {
-  return (
-    <Box>
-      <Typography variant="subtitle1" fontWeight={600}>{label}</Typography>
-      <FormGroup row>
-        {options.map((option) => (
-          <FormControlLabel
-            key={option}
-            control={
-              <Checkbox
-                checked={values.includes(option)}
-                disabled={disabled}
-                onChange={(e) => {
-                  onChange(e.target.checked
-                    ? [...values, option]
-                    : values.filter((item) => item !== option));
-                }}
-              />
-            }
-            label={option}
-          />
-        ))}
-      </FormGroup>
-    </Box>
-  );
-}
+function exportEvaluationPdf(evaluation: Evaluation) {
+  const doc = new jsPDF({ unit: "pt", format: "letter" });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 42;
+  const usableWidth = pageWidth - margin * 2;
+  let y = 48;
 
-function EvaluationSection({
-  number,
-  title,
-  children,
-}: {
-  number: number;
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <Card>
-      <CardContent>
-        <Typography variant="h5" gutterBottom>{number}. {title}</Typography>
-        {children}
-      </CardContent>
-    </Card>
-  );
+  const safe = (value: unknown): string => String(value ?? "")
+    .replace(/[—–]/g, "-")
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/\u00a0/g, " ")
+    .replace(/[^\x09\x0A\x0D\x20-\x7E]/g, "?");
+
+  const ensureSpace = (height: number) => {
+    if (y + height > pageHeight - margin) {
+      doc.addPage();
+      y = 48;
+    }
+  };
+
+  const addText = (text: string, size = 10, bold = false, indent = 0) => {
+    const clean = safe(text).trim();
+    if (!clean) return;
+    doc.setFont("helvetica", bold ? "bold" : "normal");
+    doc.setFontSize(size);
+    const lines = doc.splitTextToSize(clean, usableWidth - indent);
+    const lineHeight = size + 4;
+    ensureSpace(lines.length * lineHeight + 4);
+    doc.text(lines, margin + indent, y);
+    y += lines.length * lineHeight + 4;
+  };
+
+  const addSection = (title: string) => {
+    ensureSpace(34);
+    y += 8;
+    doc.setDrawColor(210, 210, 210);
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 18;
+    addText(title, 13, true);
+    y += 2;
+  };
+
+  const addField = (label: string, value: unknown) => {
+    const text = safe(value).trim();
+    if (!text || text === "false" || text === "0") return;
+    addText(label, 9, true);
+    addText(text, 10, false, 8);
+  };
+
+  const labelize = (key: string) => key
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/^./, c => c.toUpperCase());
+
+  const f = evaluation.formData;
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(18);
+  doc.text("SNF OT Initial Evaluation", margin, y);
+  y += 22;
+  addText(`Status: ${evaluation.status === "submitted" ? "SUBMITTED" : "DRAFT"}`, 10, true);
+  addText(`Student: ${evaluation.studentName}    Resume code: ${evaluation.resumeCode}`, 9);
+  addText(`Generated: ${new Date().toLocaleString()}`, 9);
+  y += 4;
+
+  addSection("1. Patient / Referral");
+  addField("Patient name", f.patientInfo.patientName);
+  addField("Medical record number", f.patientInfo.medicalRecordNumber);
+  addField("Date of birth", f.patientInfo.dateOfBirth);
+  addField("Evaluation date", f.patientInfo.evaluationDate);
+  addField("Medical diagnosis", f.patientInfo.medicalDiagnosis);
+  addField("Reason for OT referral", f.patientInfo.reasonForReferral);
+  addField("Weight-bearing status", f.medicalStatus.weightBearing);
+  addField("Precautions", f.medicalStatus.precautions.join(", "));
+
+  addSection("2. Occupational Profile");
+  addField("Occupational profile", f.occupationalProfile.summary);
+
+  addSection("3. Environment");
+  addField("Prior living environment", f.environmentPLOF.priorLivingEnvironment);
+  addField("Current equipment / DME / assistive devices", f.environmentPLOF.equipment);
+
+  addSection("4. Medical / Clinical Status");
+  addField("Pain location", f.medicalStatus.painLocation);
+  addField("Pain rating", f.medicalStatus.painRating);
+  addField("Vitals", f.medicalStatus.vitals);
+  addField("Relevant medications", f.medicalStatus.medicationsRelevant);
+  addField("Lines / tubes / drains", f.medicalStatus.linesTubesDrains);
+  addField("Skin / wounds", f.medicalStatus.skinWounds);
+  addField("Medical stability", f.medicalStatus.medicalStability);
+  addField("Notes", f.medicalStatus.notes);
+
+  addSection("5. Performance / ADL Status");
+  addText("Prior level of function", 10, true);
+  for (const [key, label] of ADLS) addField(label, f.adlStatus.plof[key]);
+  addText("Current performance", 10, true);
+  for (const [key, label] of ADLS) addField(label, f.adlStatus.current[key]);
+  addField("Other occupations", f.adlStatus.otherOccupations);
+  addField("Activity tolerance", f.adlStatus.activityTolerance);
+  addField("Cueing needed", f.adlStatus.cueingNeeded);
+  addField("Safety awareness", f.adlStatus.safetyAwareness);
+  addField("Observations", f.adlStatus.observations);
+
+  addSection("6. Range of Motion");
+  for (const side of ["right", "left"] as const) {
+    addText(side === "right" ? "Right upper extremity" : "Left upper extremity", 10, true);
+    for (const movement of MOVEMENTS) {
+      const finding = f.rom[side][movement];
+      if (finding.status || finding.arom || finding.prom || finding.notes) {
+        addField(movement, `${finding.status || "Not documented"}${finding.arom ? ` | AROM: ${finding.arom} deg` : ""}${finding.prom ? ` | PROM: ${finding.prom} deg` : ""}${finding.notes ? ` | ${finding.notes}` : ""}`);
+      }
+    }
+  }
+  addField("ROM summary / clinical notes", f.rom.notes);
+
+  addSection("7. Strength");
+  for (const side of ["right", "left"] as const) {
+    addText(side === "right" ? "Right upper extremity" : "Left upper extremity", 10, true);
+    for (const movement of MOVEMENTS) {
+      const finding = f.strength[side][movement];
+      if (finding.status || finding.mmt || finding.notes) {
+        addField(movement, `${finding.status || "Not documented"}${finding.mmt ? ` | MMT: ${finding.mmt}` : ""}${finding.notes ? ` | ${finding.notes}` : ""}`);
+      }
+    }
+  }
+  addField("Strength summary / clinical notes", f.strength.notes);
+
+  addSection("8. Cognition, Communication & Sensory Skills");
+  addField("Orientation", [
+    f.clientFactors.orientedPerson ? "Person" : "",
+    f.clientFactors.orientedPlace ? "Place" : "",
+    f.clientFactors.orientedTime ? "Time" : "",
+    f.clientFactors.orientedSituation ? "Situation" : "",
+  ].filter(Boolean).join(", ") || "Not documented");
+  for (const [key, value] of Object.entries(f.clientFactors)) {
+    if (typeof value === "string" && value.trim()) addField(labelize(key), value);
+  }
+
+  addSection("9. Clinical Assessment / OT Analysis");
+  addField("Assessment / clinical impression", f.clinicalAssessment.assessmentSummary);
+  addField("Rehabilitation prognosis", f.clinicalAssessment.prognosis);
+
+  addSection("10. Goals");
+  if (f.goalsPlanOfCare.goals.length) {
+    f.goalsPlanOfCare.goals.forEach((goal, index) => {
+      addText(`${goal.type} Goal ${index + 1}`, 10, true);
+      addText(goal.goalStatement);
+      addField("Occupation", goal.occupation);
+      addField("Baseline", goal.current);
+      addField("Target", goal.target);
+      addField("Condition", goal.condition);
+      addField("Measurement", goal.measurableCriterion);
+      addField("Timeframe", goal.timeframe);
+    });
+  } else {
+    addText("No guided goals have been added.");
+  }
+
+  addSection("11. Plan of Care");
+  addField("Frequency", f.goalsPlanOfCare.frequency);
+  addField("Duration", f.goalsPlanOfCare.duration);
+  addField("Skilled interventions", f.goalsPlanOfCare.treatmentInterventions.join(", "));
+  addField("Patient / caregiver education", f.goalsPlanOfCare.patientCaregiverEducation);
+  addField("Discharge planning / anticipated disposition", f.goalsPlanOfCare.dischargePlan);
+
+  addSection("12. Section GG");
+  for (const [key, value] of Object.entries(f.sectionGG)) {
+    if (key !== "ggNotes" && value) addField(labelize(key), value);
+  }
+  addField("Section GG notes / reasoning", f.sectionGG.ggNotes);
+
+  addSection("13. Review / Attestation");
+  addField("Student name", f.signatureAttestation.studentName);
+  addField("Credentials / role", f.signatureAttestation.credentials);
+  addField("Attestation completed", f.signatureAttestation.attestation ? "Yes" : "No");
+  addField("Attestation date", f.signatureAttestation.signatureDate);
+  addText("Educational demonstration. All patient information is fictional.", 8, false);
+
+  const patient = safe(f.patientInfo.patientName).replace(/[^a-zA-Z0-9_-]+/g, "_") || "Evaluation";
+  doc.save(`SNF_OT_Evaluation_${patient}_${evaluation.status === "submitted" ? "Final" : "Draft"}.pdf`);
 }
 
 export default function App() {
-  const [screen, setScreen] = useState<Screen>("home");
+  const [screen, setScreen] = useState<"home" | "evaluation">("home");
+  const [page, setPage] = useState<PageId>("patient");
   const [studentName, setStudentName] = useState("");
   const [resumeCode, setResumeCode] = useState("");
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [goalDraft, setGoalDraft] = useState<OTGoal>(blankGoal());
+  const [goalWizardOpen, setGoalWizardOpen] = useState(false);
+  const [goalWizardStep, setGoalWizardStep] = useState(0);
+  const [goalContext, setGoalContext] = useState("");
+  const [submitDialogOpen, setSubmitDialogOpen] = useState(false);
+  const disabled = evaluation?.status === "submitted" || busy;
+
+  useEffect(() => { const last = getLastCode(); if (last) setResumeCode(last); }, []);
 
   const progress = useMemo(() => {
     if (!evaluation) return 0;
-    const values: unknown[] = Object.values(evaluation.formData).flatMap((section) =>
-      Object.values(section as Record<string, unknown>),
-    );
-    const completed = values.filter((value) =>
-      Array.isArray(value) ? value.length > 0 : value !== "" && value !== false && value !== "09" && value !== "Not Tested",
-    ).length;
-    return Math.round((completed / values.length) * 100);
+    const f = evaluation.formData;
+    const sections = [
+      f.patientInfo.patientName || f.patientInfo.reasonForReferral, f.occupationalProfile.summary,
+      f.environmentPLOF.priorLivingEnvironment || f.environmentPLOF.equipment, Object.values(f.adlStatus.current).some(v => v !== "" && v !== "Not Assessed"),
+      Object.values(f.rom.right).some(v => v.status !== "" && v.status !== "Not Assessed") || Object.values(f.rom.left).some(v => v.status !== "" && v.status !== "Not Assessed"),
+      Object.values(f.strength.right).some(v => v.status !== "" && v.status !== "Not Assessed") || Object.values(f.strength.left).some(v => v.status !== "" && v.status !== "Not Assessed"),
+      Object.values(f.clientFactors).some(v => Array.isArray(v) ? v.length : v), f.clinicalAssessment.assessmentSummary,
+      f.goalsPlanOfCare.shortTermGoals || f.goalsPlanOfCare.longTermGoals, f.goalsPlanOfCare.frequency || f.goalsPlanOfCare.treatmentInterventions.length,
+      Object.values(f.sectionGG).some(v => v !== ""), f.signatureAttestation.attestation,
+    ];
+    return Math.round(sections.filter(Boolean).length / sections.length * 100);
   }, [evaluation]);
-
-  useEffect(() => {
-    const last = getLastCode();
-    if (last) setResumeCode(last);
-  }, []);
 
   async function startEvaluation() {
     const name = studentName.trim();
-    if (!name) {
-      setMessage("Enter your name before starting.");
-      return;
-    }
-    setBusy(true);
-    setMessage("");
+    if (!name) { setMessage("Enter your name before starting."); return; }
+    setBusy(true); setMessage("");
     try {
       await ensureAnonymousAuth();
       const now = new Date().toISOString();
-      const next: Evaluation = {
-        id: crypto.randomUUID(),
-        resumeCode: generateResumeCode(),
-        studentName: name,
-        status: "draft",
-        createdAt: now,
-        updatedAt: now,
-        formData: createEmptyFormData(),
-      };
+      const next: Evaluation = { id: crypto.randomUUID(), resumeCode: generateResumeCode(), studentName: name, status: "draft", createdAt: now, updatedAt: now, formData: createEmptyFormData() };
       next.formData.signatureAttestation.studentName = name;
       await saveEvaluation(next);
-      setEvaluation(next);
-      setResumeCode(next.resumeCode);
-      setScreen("evaluation");
-    } catch (error) {
-      console.error(error);
-      setMessage("Could not connect to Firebase. Check your Firebase setup and try again.");
-    } finally {
-      setBusy(false);
-    }
+      setEvaluation(next); setResumeCode(next.resumeCode); setPage("patient"); setScreen("evaluation");
+    } catch (e) { console.error(e); setMessage("Could not connect to Firebase. Check your Firebase setup and try again."); }
+    finally { setBusy(false); }
   }
-
   async function resumeEvaluation() {
-    const code = resumeCode.trim().toUpperCase();
-    if (!code) {
-      setMessage("Enter a resume code.");
-      return;
-    }
-    setBusy(true);
-    setMessage("");
+    if (!resumeCode.trim()) { setMessage("Enter a resume code."); return; }
+    setBusy(true); setMessage("");
     try {
-      const found = await loadEvaluation(code);
-      if (!found) {
-        setMessage("No saved evaluation was found for that resume code.");
-        return;
-      }
+      const found = await loadEvaluation(resumeCode);
+      if (!found) { setMessage("No saved evaluation was found for that resume code."); return; }
       const normalized = normalizeEvaluation(found);
-      setEvaluation(normalized);
-      setStudentName(normalized.studentName);
-      setScreen("evaluation");
-    } catch (error) {
-      console.error(error);
-      setMessage("Could not load that evaluation. Check your Firebase setup and try again.");
-    } finally {
-      setBusy(false);
-    }
+      setEvaluation(normalized); setStudentName(normalized.studentName); setScreen("evaluation");
+    } catch (e) { console.error(e); setMessage("Could not load that evaluation."); }
+    finally { setBusy(false); }
   }
-
-  function updateSection<K extends keyof EvaluationFormData>(
-    section: K,
-    field: keyof EvaluationFormData[K],
-    value: EvaluationFormData[K][keyof EvaluationFormData[K]],
-  ) {
+  function updateSection<K extends keyof EvaluationFormData>(section: K, field: keyof EvaluationFormData[K], value: unknown) {
     if (!evaluation || evaluation.status === "submitted") return;
-    const next: Evaluation = {
+    const next = { ...evaluation, updatedAt: new Date().toISOString(), formData: { ...evaluation.formData, [section]: { ...evaluation.formData[section], [field]: value } } };
+    setEvaluation(next); localStorage.setItem("snf-ot-eval:" + next.resumeCode, JSON.stringify(next));
+  }
+  function updateNestedADL(side: "plof" | "current", key: string, value: string) {
+    if (!evaluation || evaluation.status === "submitted") return;
+    const next = {
       ...evaluation,
       updatedAt: new Date().toISOString(),
       formData: {
         ...evaluation.formData,
-        [section]: {
-          ...evaluation.formData[section],
-          [field]: value,
+        adlStatus: {
+          ...evaluation.formData.adlStatus,
+          [side]: {
+            ...evaluation.formData.adlStatus[side],
+            [key]: value,
+          },
         },
       },
-    };
+    } as Evaluation;
+    setEvaluation(next);
+    localStorage.setItem("snf-ot-eval:" + next.resumeCode, JSON.stringify(next));
+  }
+  function updateNested(section: "rom" | "strength", side: "right" | "left", movement: string, field: string, value: string) {
+    if (!evaluation || evaluation.status === "submitted") return;
+    const current = evaluation.formData[section];
+    const next = { ...evaluation, updatedAt: new Date().toISOString(), formData: { ...evaluation.formData, [section]: { ...current, [side]: { ...current[side], [movement]: { ...current[side][movement], [field]: value } } } } } as Evaluation;
+    setEvaluation(next); localStorage.setItem("snf-ot-eval:" + next.resumeCode, JSON.stringify(next));
+  }
+  function updateGoals(goals: OTGoal[]) {
+    if (!evaluation || evaluation.status === "submitted") return;
+    const next = {
+      ...evaluation,
+      updatedAt: new Date().toISOString(),
+      formData: {
+        ...evaluation.formData,
+        goalsPlanOfCare: {
+          ...evaluation.formData.goalsPlanOfCare,
+          goals,
+          shortTermGoals: goals.filter(g => g.type === "Short-term").map(g => g.goalStatement).join("\n"),
+          longTermGoals: goals.filter(g => g.type === "Long-term").map(g => g.goalStatement).join("\n"),
+        },
+      },
+    } as Evaluation;
     setEvaluation(next);
     localStorage.setItem("snf-ot-eval:" + next.resumeCode, JSON.stringify(next));
   }
 
+  function openGoalBuilder(prefill: Partial<OTGoal> = {}, context = "") {
+    setGoalDraft({ ...blankGoal(), ...prefill });
+    setGoalContext(context);
+    setGoalWizardStep(0);
+    setGoalWizardOpen(true);
+    setPage("goals");
+  }
+
   async function saveDraft() {
-    if (!evaluation) return;
-    setBusy(true);
-    setMessage("");
-    const next = { ...evaluation, updatedAt: new Date().toISOString() };
-    setEvaluation(next);
+    if (!evaluation || evaluation.status === "submitted") return;
+    setBusy(true); setMessage("");
     try {
+      const next = { ...evaluation, updatedAt: new Date().toISOString() };
+      setEvaluation(next);
       await saveEvaluation(next);
       setMessage("Draft saved to Firebase.");
-    } catch (error) {
-      console.error(error);
-      setMessage("Draft could not be saved. Please try again.");
+    } catch (e) {
+      console.error(e);
+      setMessage("Draft could not be saved.");
     } finally {
       setBusy(false);
     }
   }
 
   async function submitEvaluation() {
-    if (!evaluation) return;
-    const required = [
-      evaluation.formData.patientInfo.patientName,
-      evaluation.formData.patientInfo.reasonForReferral,
-      evaluation.formData.occupationalProfile.patientGoals,
-      evaluation.formData.clinicalAssessment.occupationalPerformanceProblem,
-      evaluation.formData.goalsPlanOfCare.longTermGoals,
-    ];
-    if (required.some((value) => !value.trim())) {
-      setMessage("Before submitting, complete the patient name, referral reason, patient goals, occupational performance problem, and at least one long-term goal.");
+    if (!evaluation || evaluation.status === "submitted") return;
+    if (!evaluation.formData.signatureAttestation.attestation) {
+      setMessage("Complete the attestation before submitting.");
       return;
     }
 
     setBusy(true);
     setMessage("");
-    const next: Evaluation = {
-      ...evaluation,
-      status: "submitted",
-      updatedAt: new Date().toISOString(),
-    };
     try {
+      const next: Evaluation = {
+        ...evaluation,
+        status: "submitted",
+        updatedAt: new Date().toISOString(),
+      };
       await saveEvaluation(next);
       setEvaluation(next);
-      setMessage("Evaluation submitted. This evaluation is now read-only.");
-    } catch (error) {
-      console.error(error);
-      setMessage("Evaluation could not be submitted. Please try again.");
+      setSubmitDialogOpen(false);
+      setPage("review");
+      setMessage("Evaluation submitted. It is now read-only.");
+    } catch (e) {
+      console.error(e);
+      setMessage("Evaluation could not be submitted.");
     } finally {
       setBusy(false);
     }
   }
 
-  const disabled = evaluation?.status === "submitted" || busy;
-
-  if (screen === "evaluation" && evaluation) {
-    return (
-      <Container maxWidth="md" sx={{ py: 4 }}>
-        <Stack spacing={3}>
-          <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" alignItems={{ xs: "flex-start", sm: "center" }} gap={2}>
-            <Box>
-              <Typography variant="h4" fontWeight={700}>SNF OT Initial Evaluation</Typography>
-              <Typography color="text.secondary">Student: {evaluation.studentName}</Typography>
-            </Box>
-            <Chip label={evaluation.status === "submitted" ? "Submitted" : "Draft"} />
-          </Stack>
-
-          <Alert severity="info">
-            Resume code: <strong>{evaluation.resumeCode}</strong>
-          </Alert>
-
-          <Box>
-            <Stack direction="row" justifyContent="space-between" sx={{ mb: 1 }}>
-              <Typography variant="body2">Evaluation progress</Typography>
-              <Typography variant="body2">{progress}%</Typography>
-            </Stack>
-            <LinearProgress variant="determinate" value={progress} />
-          </Box>
-
-          <EvaluationSection number={1} title="Patient / Referral Information">
-            <Stack spacing={2}>
-              <Typography color="text.secondary">Fictional patient information for educational practice.</Typography>
-              <TextField label="Patient name" value={evaluation.formData.patientInfo.patientName}
-                onChange={(e) => updateSection("patientInfo", "patientName", e.target.value)} disabled={disabled} />
-              <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-                <TextField fullWidth label="Medical record number" value={evaluation.formData.patientInfo.medicalRecordNumber}
-                  onChange={(e) => updateSection("patientInfo", "medicalRecordNumber", e.target.value)} disabled={disabled} />
-                <TextField fullWidth label="Date of birth" type="date" slotProps={{ inputLabel: { shrink: true } }}
-                  value={evaluation.formData.patientInfo.dateOfBirth} onChange={(e) => updateSection("patientInfo", "dateOfBirth", e.target.value)} disabled={disabled} />
-              </Stack>
-              <TextField label="Evaluation date" type="date" slotProps={{ inputLabel: { shrink: true } }}
-                value={evaluation.formData.patientInfo.evaluationDate} onChange={(e) => updateSection("patientInfo", "evaluationDate", e.target.value)} disabled={disabled} />
-              <TextField label="Medical diagnosis" value={evaluation.formData.patientInfo.medicalDiagnosis}
-                onChange={(e) => updateSection("patientInfo", "medicalDiagnosis", e.target.value)} disabled={disabled} />
-              <TextField label="Reason for OT referral" multiline minRows={3} value={evaluation.formData.patientInfo.reasonForReferral}
-                onChange={(e) => updateSection("patientInfo", "reasonForReferral", e.target.value)} disabled={disabled} />
-            </Stack>
-          </EvaluationSection>
-
-          <EvaluationSection number={2} title="Occupational Profile">
-            <Stack spacing={2}>
-              <TextField label="Prior setting / living environment" multiline minRows={2} value={evaluation.formData.occupationalProfile.priorSetting}
-                onChange={(e) => updateSection("occupationalProfile", "priorSetting", e.target.value)} disabled={disabled} />
-              <TextField label="Prior living situation" multiline minRows={2} value={evaluation.formData.occupationalProfile.livingSituation}
-                onChange={(e) => updateSection("occupationalProfile", "livingSituation", e.target.value)} disabled={disabled} />
-              <TextField label="Important roles" value={evaluation.formData.occupationalProfile.roles}
-                onChange={(e) => updateSection("occupationalProfile", "roles", e.target.value)} disabled={disabled} />
-              <TextField label="Typical routines" multiline minRows={2} value={evaluation.formData.occupationalProfile.routines}
-                onChange={(e) => updateSection("occupationalProfile", "routines", e.target.value)} disabled={disabled} />
-              <TextField label="Interests / meaningful occupations" multiline minRows={2} value={evaluation.formData.occupationalProfile.interests}
-                onChange={(e) => updateSection("occupationalProfile", "interests", e.target.value)} disabled={disabled} />
-              <TextField label="Patient-stated goals" multiline minRows={2} value={evaluation.formData.occupationalProfile.patientGoals}
-                onChange={(e) => updateSection("occupationalProfile", "patientGoals", e.target.value)} disabled={disabled} />
-              <TextField label="Occupational concerns identified during interview" multiline minRows={3} value={evaluation.formData.occupationalProfile.occupationalConcerns}
-                onChange={(e) => updateSection("occupationalProfile", "occupationalConcerns", e.target.value)} disabled={disabled} />
-            </Stack>
-          </EvaluationSection>
-
-          <EvaluationSection number={3} title="Prior Level of Function (PLOF)">
-            <Stack spacing={2}>
-              <TextField label="Prior self-care / ADL performance" multiline minRows={2} value={evaluation.formData.plof.priorSelfCare}
-                onChange={(e) => updateSection("plof", "priorSelfCare", e.target.value)} disabled={disabled} />
-              <TextField label="Prior mobility / transfers" multiline minRows={2} value={evaluation.formData.plof.priorMobility}
-                onChange={(e) => updateSection("plof", "priorMobility", e.target.value)} disabled={disabled} />
-              <TextField label="Prior IADL performance" multiline minRows={2} value={evaluation.formData.plof.priorIADL}
-                onChange={(e) => updateSection("plof", "priorIADL", e.target.value)} disabled={disabled} />
-              <TextField label="Prior work / leisure / social participation" multiline minRows={2} value={evaluation.formData.plof.priorWorkLeisure}
-                onChange={(e) => updateSection("plof", "priorWorkLeisure", e.target.value)} disabled={disabled} />
-              <TextField label="Prior equipment / assistive devices" value={evaluation.formData.plof.priorEquipment}
-                onChange={(e) => updateSection("plof", "priorEquipment", e.target.value)} disabled={disabled} />
-              <TextField label="Prior level of assistance / caregiver support" multiline minRows={2} value={evaluation.formData.plof.priorAssistance}
-                onChange={(e) => updateSection("plof", "priorAssistance", e.target.value)} disabled={disabled} />
-              <TextField label="Baseline cognition / safety awareness" multiline minRows={2} value={evaluation.formData.plof.baselineCognition}
-                onChange={(e) => updateSection("plof", "baselineCognition", e.target.value)} disabled={disabled} />
-            </Stack>
-          </EvaluationSection>
-
-          <EvaluationSection number={4} title="Current Medical / Clinical Status">
-            <Stack spacing={2}>
-              <CheckboxGroup label="Precautions" options={PRECAUTIONS} values={evaluation.formData.medicalStatus.precautions} disabled={!!disabled}
-                onChange={(v) => updateSection("medicalStatus", "precautions", v)} />
-              <SelectField label="Weight-bearing status" value={evaluation.formData.medicalStatus.weightBearing}
-                options={["WBAT", "NWB", "TTWB", "PWB", "No restriction", "Unknown / verify order"]} disabled={!!disabled}
-                onChange={(v) => updateSection("medicalStatus", "weightBearing", v)} />
-              <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-                <TextField fullWidth label="Pain location / description" value={evaluation.formData.medicalStatus.painLocation}
-                  onChange={(e) => updateSection("medicalStatus", "painLocation", e.target.value)} disabled={disabled} />
-                <TextField fullWidth label="Pain rating (0–10)" type="number" value={evaluation.formData.medicalStatus.painRating}
-                  onChange={(e) => updateSection("medicalStatus", "painRating", e.target.value)} disabled={disabled} />
-              </Stack>
-              <TextField label="Relevant vitals / response to activity" multiline minRows={2} value={evaluation.formData.medicalStatus.vitals}
-                onChange={(e) => updateSection("medicalStatus", "vitals", e.target.value)} disabled={disabled} />
-              <TextField label="Medications relevant to OT performance" multiline minRows={2} value={evaluation.formData.medicalStatus.medicationsRelevant}
-                onChange={(e) => updateSection("medicalStatus", "medicationsRelevant", e.target.value)} disabled={disabled} />
-              <TextField label="Lines / tubes / drains" value={evaluation.formData.medicalStatus.linesTubesDrains}
-                onChange={(e) => updateSection("medicalStatus", "linesTubesDrains", e.target.value)} disabled={disabled} />
-              <TextField label="Skin / wounds relevant to OT" multiline minRows={2} value={evaluation.formData.medicalStatus.skinWounds}
-                onChange={(e) => updateSection("medicalStatus", "skinWounds", e.target.value)} disabled={disabled} />
-              <SelectField label="Medical stability for skilled activity" value={evaluation.formData.medicalStatus.medicalStability}
-                options={["Stable", "Stable with monitoring", "Fluctuating — coordinate with team", "Unable to determine / verify"]} disabled={!!disabled}
-                onChange={(v) => updateSection("medicalStatus", "medicalStability", v)} />
-              <TextField label="Additional precautions / clinical notes" multiline minRows={3} value={evaluation.formData.medicalStatus.precautionsNotes}
-                onChange={(e) => updateSection("medicalStatus", "precautionsNotes", e.target.value)} disabled={disabled} />
-            </Stack>
-          </EvaluationSection>
-
-          <EvaluationSection number={5} title="Examination & Performance Skills">
-            <Stack spacing={2}>
-              <SelectField label="Arousal / orientation" value={evaluation.formData.examination.arousalOrientation}
-                options={["Alert and oriented", "Alert with intermittent confusion", "Drowsy but arousable", "Fluctuating", "Unable to assess"]} disabled={!!disabled}
-                onChange={(v) => updateSection("examination", "arousalOrientation", v)} />
-              <CheckboxGroup label="Cognitive findings" options={COGNITION} values={evaluation.formData.examination.cognition} disabled={!!disabled}
-                onChange={(v) => updateSection("examination", "cognition", v)} />
-              <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-                <TextField fullWidth label="Communication" multiline minRows={2} value={evaluation.formData.examination.communication}
-                  onChange={(e) => updateSection("examination", "communication", e.target.value)} disabled={disabled} />
-                <TextField fullWidth label="Vision" multiline minRows={2} value={evaluation.formData.examination.vision}
-                  onChange={(e) => updateSection("examination", "vision", e.target.value)} disabled={disabled} />
-                <TextField fullWidth label="Hearing" multiline minRows={2} value={evaluation.formData.examination.hearing}
-                  onChange={(e) => updateSection("examination", "hearing", e.target.value)} disabled={disabled} />
-              </Stack>
-              <TextField label="Sensation" multiline minRows={2} value={evaluation.formData.examination.sensation}
-                onChange={(e) => updateSection("examination", "sensation", e.target.value)} disabled={disabled} />
-              <TextField label="Edema" multiline minRows={2} value={evaluation.formData.examination.edema}
-                onChange={(e) => updateSection("examination", "edema", e.target.value)} disabled={disabled} />
-              <TextField label="ROM / flexibility findings" multiline minRows={3} value={evaluation.formData.examination.ROM}
-                onChange={(e) => updateSection("examination", "ROM", e.target.value)} disabled={disabled} />
-              <TextField label="Strength / MMT findings" multiline minRows={3} value={evaluation.formData.examination.strength}
-                onChange={(e) => updateSection("examination", "strength", e.target.value)} disabled={disabled} />
-              <TextField label="Coordination / fine motor findings" multiline minRows={2} value={evaluation.formData.examination.coordination}
-                onChange={(e) => updateSection("examination", "coordination", e.target.value)} disabled={disabled} />
-              <TextField label="Balance" multiline minRows={2} value={evaluation.formData.examination.balance}
-                onChange={(e) => updateSection("examination", "balance", e.target.value)} disabled={disabled} />
-              <TextField label="Endurance / activity tolerance" multiline minRows={2} value={evaluation.formData.examination.endurance}
-                onChange={(e) => updateSection("examination", "endurance", e.target.value)} disabled={disabled} />
-              <TextField label="Motor planning / praxis" multiline minRows={2} value={evaluation.formData.examination.motorPlanning}
-                onChange={(e) => updateSection("examination", "motorPlanning", e.target.value)} disabled={disabled} />
-              <TextField label="Functional mobility observations" multiline minRows={3} value={evaluation.formData.examination.functionalMobility}
-                onChange={(e) => updateSection("examination", "functionalMobility", e.target.value)} disabled={disabled} />
-              <TextField label="Standardized assessments administered" multiline minRows={2} value={evaluation.formData.examination.standardizedAssessments}
-                onChange={(e) => updateSection("examination", "standardizedAssessments", e.target.value)} disabled={disabled} />
-              <TextField label="Assessment findings / interpretation" multiline minRows={3} value={evaluation.formData.examination.assessmentFindings}
-                onChange={(e) => updateSection("examination", "assessmentFindings", e.target.value)} disabled={disabled} />
-            </Stack>
-          </EvaluationSection>
-
-          <EvaluationSection number={6} title="Current Occupational Performance / ADL Status">
-            <Stack spacing={2}>
-              <Typography color="text.secondary">Rate observed or reasonably assessed assistance level for this educational case.</Typography>
-              <Stack spacing={1}>
-                {([
-                  ["eating", "Eating"],
-                  ["grooming", "Grooming"],
-                  ["bathing", "Bathing"],
-                  ["upperBodyDressing", "Upper-body dressing"],
-                  ["lowerBodyDressing", "Lower-body dressing"],
-                  ["toileting", "Toileting"],
-                  ["toiletTransfer", "Toilet transfer"],
-                  ["showerTransfer", "Shower / tub transfer"],
-                  ["bedMobility", "Bed mobility"],
-                  ["transfers", "Functional transfers"],
-                  ["functionalMobility", "Functional mobility"],
-                ] as const).map(([field, label]) => (
-                  <SelectField key={field} label={label} value={evaluation.formData.adlStatus[field]} options={ASSISTANCE_OPTIONS}
-                    disabled={!!disabled} onChange={(v) => updateSection("adlStatus", field, v)} />
-                ))}
-              </Stack>
-              <TextField label="Other occupations / IADLs relevant to case" multiline minRows={2} value={evaluation.formData.adlStatus.otherOccupations}
-                onChange={(e) => updateSection("adlStatus", "otherOccupations", e.target.value)} disabled={disabled} />
-              <TextField label="Activity tolerance during occupations" multiline minRows={2} value={evaluation.formData.adlStatus.activityTolerance}
-                onChange={(e) => updateSection("adlStatus", "activityTolerance", e.target.value)} disabled={disabled} />
-              <TextField label="Cueing needed" multiline minRows={2} value={evaluation.formData.adlStatus.cueingNeeded}
-                onChange={(e) => updateSection("adlStatus", "cueingNeeded", e.target.value)} disabled={disabled} />
-              <TextField label="Safety awareness during tasks" multiline minRows={2} value={evaluation.formData.adlStatus.safetyAwareness}
-                onChange={(e) => updateSection("adlStatus", "safetyAwareness", e.target.value)} disabled={disabled} />
-              <TextField label="Observed performance notes" multiline minRows={4} value={evaluation.formData.adlStatus.observations}
-                onChange={(e) => updateSection("adlStatus", "observations", e.target.value)} disabled={disabled} />
-            </Stack>
-          </EvaluationSection>
-
-          <EvaluationSection number={7} title="Cognitive / Psychosocial / Environmental Factors">
-            <Stack spacing={2}>
-              <TextField label="How cognition affects occupational performance" multiline minRows={3} value={evaluation.formData.cognitivePsychosocialEnvironmental.cognitionImpact}
-                onChange={(e) => updateSection("cognitivePsychosocialEnvironmental", "cognitionImpact", e.target.value)} disabled={disabled} />
-              <CheckboxGroup label="Psychosocial factors" options={PSYCHOSOCIAL} values={evaluation.formData.cognitivePsychosocialEnvironmental.psychosocialFactors} disabled={!!disabled}
-                onChange={(v) => updateSection("cognitivePsychosocialEnvironmental", "psychosocialFactors", v)} />
-              <TextField label="Mood / affect" value={evaluation.formData.cognitivePsychosocialEnvironmental.moodAffect}
-                onChange={(e) => updateSection("cognitivePsychosocialEnvironmental", "moodAffect", e.target.value)} disabled={disabled} />
-              <SelectField label="Motivation / engagement" value={evaluation.formData.cognitivePsychosocialEnvironmental.motivation}
-                options={["High", "Moderate", "Variable", "Low", "Unable to assess"]} disabled={!!disabled}
-                onChange={(v) => updateSection("cognitivePsychosocialEnvironmental", "motivation", v)} />
-              <TextField label="Safety awareness" multiline minRows={2} value={evaluation.formData.cognitivePsychosocialEnvironmental.safetyAwareness}
-                onChange={(e) => updateSection("cognitivePsychosocialEnvironmental", "safetyAwareness", e.target.value)} disabled={disabled} />
-              <TextField label="Environmental barriers" multiline minRows={2} value={evaluation.formData.cognitivePsychosocialEnvironmental.environmentalBarriers}
-                onChange={(e) => updateSection("cognitivePsychosocialEnvironmental", "environmentalBarriers", e.target.value)} disabled={disabled} />
-              <TextField label="Environmental supports" multiline minRows={2} value={evaluation.formData.cognitivePsychosocialEnvironmental.environmentalSupports}
-                onChange={(e) => updateSection("cognitivePsychosocialEnvironmental", "environmentalSupports", e.target.value)} disabled={disabled} />
-              <TextField label="Caregiver / social support" multiline minRows={2} value={evaluation.formData.cognitivePsychosocialEnvironmental.caregiverSupport}
-                onChange={(e) => updateSection("cognitivePsychosocialEnvironmental", "caregiverSupport", e.target.value)} disabled={disabled} />
-              <TextField label="Anticipated discharge setting" value={evaluation.formData.cognitivePsychosocialEnvironmental.dischargeSetting}
-                onChange={(e) => updateSection("cognitivePsychosocialEnvironmental", "dischargeSetting", e.target.value)} disabled={disabled} />
-              <TextField label="Equipment / DME considerations" multiline minRows={2} value={evaluation.formData.cognitivePsychosocialEnvironmental.equipmentNeeds}
-                onChange={(e) => updateSection("cognitivePsychosocialEnvironmental", "equipmentNeeds", e.target.value)} disabled={disabled} />
-            </Stack>
-          </EvaluationSection>
-
-          <EvaluationSection number={8} title="Clinical Assessment / OT Analysis">
-            <Stack spacing={2}>
-              <TextField label="Patient strengths" multiline minRows={3} value={evaluation.formData.clinicalAssessment.strengths}
-                onChange={(e) => updateSection("clinicalAssessment", "strengths", e.target.value)} disabled={disabled} />
-              <TextField label="Performance skills / client factor impairments" multiline minRows={3} value={evaluation.formData.clinicalAssessment.impairments}
-                onChange={(e) => updateSection("clinicalAssessment", "impairments", e.target.value)} disabled={disabled} />
-              <TextField label="Activity limitations" multiline minRows={3} value={evaluation.formData.clinicalAssessment.activityLimitations}
-                onChange={(e) => updateSection("clinicalAssessment", "activityLimitations", e.target.value)} disabled={disabled} />
-              <TextField label="Participation restrictions" multiline minRows={3} value={evaluation.formData.clinicalAssessment.participationRestrictions}
-                onChange={(e) => updateSection("clinicalAssessment", "participationRestrictions", e.target.value)} disabled={disabled} />
-              <TextField label="Primary occupational performance problem" multiline minRows={3} value={evaluation.formData.clinicalAssessment.occupationalPerformanceProblem}
-                onChange={(e) => updateSection("clinicalAssessment", "occupationalPerformanceProblem", e.target.value)} disabled={disabled} />
-              <TextField label="Clinical reasoning: why OT?" multiline minRows={4} value={evaluation.formData.clinicalAssessment.clinicalRationale}
-                onChange={(e) => updateSection("clinicalAssessment", "clinicalRationale", e.target.value)} disabled={disabled} />
-              <TextField label="Skilled OT need / medical necessity rationale" multiline minRows={4} value={evaluation.formData.clinicalAssessment.skilledNeed}
-                onChange={(e) => updateSection("clinicalAssessment", "skilledNeed", e.target.value)} disabled={disabled} />
-              <SelectField label="Rehabilitation prognosis" value={evaluation.formData.clinicalAssessment.prognosis}
-                options={["Good", "Fair", "Guarded", "Unable to determine"]} disabled={!!disabled}
-                onChange={(v) => updateSection("clinicalAssessment", "prognosis", v)} />
-            </Stack>
-          </EvaluationSection>
-
-          <EvaluationSection number={9} title="Goals & Plan of Care">
-            <Stack spacing={2}>
-              <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-                <TextField fullWidth label="Frequency (e.g., 5x/week)" value={evaluation.formData.goalsPlanOfCare.frequency}
-                  onChange={(e) => updateSection("goalsPlanOfCare", "frequency", e.target.value)} disabled={disabled} />
-                <TextField fullWidth label="Duration (e.g., 4 weeks)" value={evaluation.formData.goalsPlanOfCare.duration}
-                  onChange={(e) => updateSection("goalsPlanOfCare", "duration", e.target.value)} disabled={disabled} />
-              </Stack>
-              <CheckboxGroup label="Planned skilled interventions" options={INTERVENTIONS} values={evaluation.formData.goalsPlanOfCare.treatmentInterventions} disabled={!!disabled}
-                onChange={(v) => updateSection("goalsPlanOfCare", "treatmentInterventions", v)} />
-              <TextField label="Short-term goals" multiline minRows={5} placeholder="Write measurable, occupation-based goals." value={evaluation.formData.goalsPlanOfCare.shortTermGoals}
-                onChange={(e) => updateSection("goalsPlanOfCare", "shortTermGoals", e.target.value)} disabled={disabled} />
-              <TextField label="Long-term goals" multiline minRows={5} placeholder="Write measurable discharge-oriented goals." value={evaluation.formData.goalsPlanOfCare.longTermGoals}
-                onChange={(e) => updateSection("goalsPlanOfCare", "longTermGoals", e.target.value)} disabled={disabled} />
-              <TextField label="Discharge plan / anticipated disposition" multiline minRows={3} value={evaluation.formData.goalsPlanOfCare.dischargePlan}
-                onChange={(e) => updateSection("goalsPlanOfCare", "dischargePlan", e.target.value)} disabled={disabled} />
-              <TextField label="Patient / caregiver education" multiline minRows={3} value={evaluation.formData.goalsPlanOfCare.patientCaregiverEducation}
-                onChange={(e) => updateSection("goalsPlanOfCare", "patientCaregiverEducation", e.target.value)} disabled={disabled} />
-            </Stack>
-          </EvaluationSection>
-
-          <EvaluationSection number={10} title="SNF Section GG-Style Functional Coding Reference">
-            <Stack spacing={2}>
-              <Alert severity="warning">
-                Educational reference only — this is not an official MDS or billing form. Select the code that best represents the fictional case for practice.
-              </Alert>
-              <Typography color="text.secondary">
-                Common activity-performance scale: 06 independent; 05 setup/cleanup; 04 supervision/touching; 03 partial/moderate; 02 substantial/maximal; 01 dependent. 09 and 88 are included for practice when an activity is not applicable/not attempted.
-              </Typography>
-              <Stack spacing={1}>
-                {([
-                  ["eating", "Eating"],
-                  ["oralHygiene", "Oral hygiene"],
-                  ["toiletingHygiene", "Toileting hygiene"],
-                  ["showerBathing", "Shower / bathing"],
-                  ["upperBodyDressing", "Upper-body dressing"],
-                  ["lowerBodyDressing", "Lower-body dressing"],
-                  ["footwear", "Putting on / taking off footwear"],
-                  ["rolling", "Rolling"],
-                  ["sitToLying", "Sit to lying"],
-                  ["lyingToSitting", "Lying to sitting"],
-                  ["sitToStand", "Sit to stand"],
-                  ["chairBedTransfer", "Chair / bed transfer"],
-                  ["toiletTransfer", "Toilet transfer"],
-                  ["walking10Feet", "Walking 10 feet"],
-                  ["walking50FeetTurn", "Walking 50 feet with turns"],
-                  ["stairs", "Stairs"],
-                ] as const).map(([field, label]) => (
-                  <SelectField key={field} label={label} value={evaluation.formData.sectionGG[field]} options={GG_OPTIONS.map((o) => o.label)}
-                    disabled={!!disabled} onChange={(v) => {
-                      const option = GG_OPTIONS.find((o) => o.label === v);
-                      updateSection("sectionGG", field, option?.code ?? "09");
-                    }} />
-                ))}
-              </Stack>
-              <TextField label="Section GG reasoning / notes" multiline minRows={4} value={evaluation.formData.sectionGG.ggNotes}
-                onChange={(e) => updateSection("sectionGG", "ggNotes", e.target.value)} disabled={disabled} />
-            </Stack>
-          </EvaluationSection>
-
-          <EvaluationSection number={11} title="Signature / Attestation">
-            <Stack spacing={2}>
-              <TextField label="Student name" value={evaluation.formData.signatureAttestation.studentName}
-                onChange={(e) => updateSection("signatureAttestation", "studentName", e.target.value)} disabled={disabled} />
-              <TextField label="Credentials / role" placeholder="OT student" value={evaluation.formData.signatureAttestation.credentials}
-                onChange={(e) => updateSection("signatureAttestation", "credentials", e.target.value)} disabled={disabled} />
-              <TextField label="Date" type="date" slotProps={{ inputLabel: { shrink: true } }} value={evaluation.formData.signatureAttestation.signatureDate}
-                onChange={(e) => updateSection("signatureAttestation", "signatureDate", e.target.value)} disabled={disabled} />
-              <FormControlLabel
-                control={<Checkbox checked={evaluation.formData.signatureAttestation.attestation} disabled={!!disabled}
-                  onChange={(e) => updateSection("signatureAttestation", "attestation", e.target.checked)} />}
-                label="I attest that this is my educational evaluation work based on the fictional case presented."
-              />
-            </Stack>
-          </EvaluationSection>
-
-          {message && <Alert severity={message.includes("saved") || message.includes("submitted") ? "success" : "error"}>{message}</Alert>}
-
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={2} justifyContent="flex-end">
-            <Button variant="outlined" onClick={saveDraft} disabled={!!disabled}>Save Draft</Button>
-            <Button variant="contained" onClick={submitEvaluation} disabled={!!disabled}>Submit Evaluation</Button>
-          </Stack>
-        </Stack>
-      </Container>
-    );
+  function startNewEvaluation() {
+    setEvaluation(null);
+    setPage("patient");
+    setStudentName("");
+    setResumeCode("");
+    setMessage("");
+    setSubmitDialogOpen(false);
+    setScreen("home");
   }
 
-  return (
-    <Container maxWidth="sm" sx={{ py: 8 }}>
-      <Stack spacing={4}>
-        <Box>
-          <Typography variant="h3" fontWeight={800}>SNF OT Evaluation</Typography>
-          <Typography variant="h6" color="text.secondary" sx={{ mt: 1 }}>
-            Student teaching tool for skilled nursing facility initial evaluations.
-          </Typography>
-        </Box>
+  function renderFindingPage(section: "rom" | "strength") {
+    const data = evaluation!.formData[section];
+    const isROM = section === "rom";
+    const renderFinding = (side: "right" | "left", movement: string) => {
+      const finding = data[side][movement];
+      return <Card variant="outlined"><CardContent><Stack spacing={1.5}>
+        <Typography fontWeight={700}>{side === "right" ? "Right side" : "Left side"}</Typography>
+        <SelectField label="Finding" value={finding.status} options={FINDING_OPTIONS} disabled={!!disabled} onChange={v => updateNested(section, side, movement, "status", v)} />
+        {finding.status === "Impaired" && (isROM ? (() => {
+          const romFinding = finding as import("./types").ROMFinding;
+          return <Stack spacing={1.5}><Field label="AROM (degrees)" value={romFinding.arom} disabled={!!disabled} onChange={v => updateNested(section, side, movement, "arom", v)} /><Field label="PROM (degrees)" value={romFinding.prom} disabled={!!disabled} onChange={v => updateNested(section, side, movement, "prom", v)} /></Stack>;
+        })() : (() => {
+          const strengthFinding = finding as import("./types").StrengthFinding;
+          return <SelectField label="MMT" value={strengthFinding.mmt} options={["0", "1", "2-", "2", "2+", "3-", "3", "3+", "4-", "4", "4+", "5"]} disabled={!!disabled} onChange={v => updateNested(section, side, movement, "mmt", v)} />;
+        })())}
+        {finding.status === "Impaired" && <Field label="Notes" value={finding.notes} disabled={!!disabled} onChange={v => updateNested(section, side, movement, "notes", v)} />}
+        {finding.status === "Impaired" && <Button
+          variant="outlined"
+          size="small"
+          onClick={() => {
+            const detail = isROM
+              ? (() => {
+                  const r = finding as import("./types").ROMFinding;
+                  return `${side === "right" ? "Right" : "Left"} ${movement} — Impaired; AROM: ${r.arom || "not documented"}°, PROM: ${r.prom || "not documented"}°`;
+                })()
+              : (() => {
+                  const s = finding as import("./types").StrengthFinding;
+                  return `${side === "right" ? "Right" : "Left"} ${movement} — Impaired; MMT: ${s.mmt || "not documented"}`;
+                })();
+            openGoalBuilder({}, detail);
+          }}
+          disabled={!!disabled}
+          sx={{ alignSelf: "flex-start", textTransform: "none" }}
+        >
+          Build Goal
+        </Button>}
+      </Stack></CardContent></Card>;
+    };
+    return <PageCard title={isROM ? "Range of Motion" : "Strength"} help="Each movement is documented separately for the right and left upper extremities.">
+      {MOVEMENTS.map(m => <Box key={m}><Typography variant="h6" sx={{ mb: 1 }}>{m}</Typography><Stack direction={{ xs: "column", md: "row" }} spacing={1.5}><Box sx={{ flex: 1 }}>{renderFinding("right", m)}</Box><Box sx={{ flex: 1 }}>{renderFinding("left", m)}</Box></Stack></Box>)}
+      <Field label={isROM ? "ROM summary / clinical notes" : "Strength summary / clinical notes"} value={data.notes} disabled={!!disabled} onChange={v => updateSection(section, "notes", v)} multiline />
+    </PageCard>;
+  }
 
-        <Card>
-          <CardContent>
-            <Stack spacing={2}>
-              <Typography variant="h5">Start a new evaluation</Typography>
-              <TextField label="Student name" value={studentName} onChange={(e) => setStudentName(e.target.value)} />
-              <Button variant="contained" size="large" onClick={startEvaluation} disabled={busy}>Start Evaluation</Button>
-            </Stack>
-          </CardContent>
-        </Card>
+  function renderPage() {
+    if (!evaluation) return null;
+    const f = evaluation.formData;
+    switch (page) {
+      case "patient": return <PageCard title="Patient / Referral" help="Enter the basic clinical context for the evaluation."><Stack spacing={2}>
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={2}><Field label="Patient name" value={f.patientInfo.patientName} disabled={!!disabled} onChange={v => updateSection("patientInfo", "patientName", v)} /><Field label="Medical record number" value={f.patientInfo.medicalRecordNumber} disabled={!!disabled} onChange={v => updateSection("patientInfo", "medicalRecordNumber", v)} /></Stack>
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={2}><Field label="Date of birth" value={f.patientInfo.dateOfBirth} disabled={!!disabled} onChange={v => updateSection("patientInfo", "dateOfBirth", v)} /><Field label="Evaluation date" value={f.patientInfo.evaluationDate} disabled={!!disabled} onChange={v => updateSection("patientInfo", "evaluationDate", v)} /></Stack>
+        <Field label="Medical diagnosis" value={f.patientInfo.medicalDiagnosis} disabled={!!disabled} onChange={v => updateSection("patientInfo", "medicalDiagnosis", v)} />
+        <Field label="Reason for OT referral" value={f.patientInfo.reasonForReferral} disabled={!!disabled} onChange={v => updateSection("patientInfo", "reasonForReferral", v)} multiline minRows={4} />
+        <Divider /><Typography variant="h6">Medical / Clinical Considerations</Typography>
+        <FormControl fullWidth disabled={!!disabled}><InputLabel>Weight-bearing status</InputLabel><Select value={f.medicalStatus.weightBearing} label="Weight-bearing status" onChange={e => updateSection("medicalStatus", "weightBearing", e.target.value)}>{["WBAT","NWB","TTWB","PWB","No restriction","Unknown / verify order"].map(x => <MenuItem key={x} value={x}>{x}</MenuItem>)}</Select></FormControl>
+        <Field label="Precautions / relevant medical considerations" value={f.medicalStatus.notes} disabled={!!disabled} onChange={v => updateSection("medicalStatus","notes",v)} multiline />
+      </Stack></PageCard>;
+      case "profile": return <PageCard title="Occupational Profile" help="Write a concise occupational profile rather than completing separate prompts for roles, routines, interests, and concerns."><Field label="Occupational Profile / Patient Summary" value={f.occupationalProfile.summary} disabled={!!disabled} onChange={v => updateSection("occupationalProfile","summary",v)} multiline minRows={14} placeholder="Describe the patient's roles, routines, interests, meaningful occupations, occupational concerns, relevant history, and patient priorities." /></PageCard>;
+      case "environment": return <PageCard title="Environment" help="Describe the physical and social environment that may support or limit occupational performance. Keep the main documentation here as one concise environmental narrative.">
+        <Field label="Environment / Home Setup" value={f.environmentPLOF.priorLivingEnvironment} disabled={!!disabled} onChange={v => updateSection("environmentPLOF","priorLivingEnvironment",v)} multiline minRows={12} placeholder="Describe the prior living setting, layout, stairs, bathroom setup, accessibility, caregiver/support availability, routines or environmental demands, and other contextual factors relevant to occupational performance." />
+        <Field label="Current equipment / DME / assistive devices (list)" value={f.environmentPLOF.equipment} disabled={!!disabled} onChange={v => updateSection("environmentPLOF","equipment",v)} placeholder="Example: rolling walker, shower chair, grab bars, wheelchair." />
+      </PageCard>;
+      case "function": return <PageCard title="Performance" help="Document the patient's prior and current assistance levels for each occupation. PLOF is captured here functionally rather than as a separate narrative."><Stack spacing={1.5}>{ADLS.map(([key,label]) => <Card variant="outlined" key={key}><CardContent><Stack spacing={1.5}><Typography variant="h6">{label}</Typography><Stack direction={{ xs:"column", sm:"row" }} spacing={1.5}><SelectField label="PLOF" value={f.adlStatus.plof[key]} options={ASSISTANCE_OPTIONS} disabled={!!disabled} onChange={v => updateNestedADL("plof",key,v)} /><SelectField label="Current level" value={f.adlStatus.current[key]} options={ASSISTANCE_OPTIONS} disabled={!!disabled} onChange={v => updateNestedADL("current",key,v)} /></Stack>{f.adlStatus.current[key] && f.adlStatus.current[key] !== "Not Assessed" && f.adlStatus.current[key] !== "Not Applicable" && <Button variant="outlined" size="small" onClick={() => openGoalBuilder({ occupation: key, plof: f.adlStatus.plof[key], current: f.adlStatus.current[key] }, `${label} — Current level: ${f.adlStatus.current[key]}`)} disabled={!!disabled} sx={{ alignSelf: "flex-start", textTransform: "none" }}>Build Goal</Button>}</Stack></CardContent></Card>)}</Stack><Field label="Current occupational performance / functional observations" value={f.adlStatus.observations} disabled={!!disabled} onChange={v => updateSection("adlStatus","observations",v)} multiline minRows={8} /><Stack direction={{ xs:"column", sm:"row" }} spacing={1.5}><Field label="Activity tolerance" value={f.adlStatus.activityTolerance} disabled={!!disabled} onChange={v => updateSection("adlStatus","activityTolerance",v)} /><Field label="Cueing needed" value={f.adlStatus.cueingNeeded} disabled={!!disabled} onChange={v => updateSection("adlStatus","cueingNeeded",v)} /></Stack><Field label="Safety awareness" value={f.adlStatus.safetyAwareness} disabled={!!disabled} onChange={v => updateSection("adlStatus","safetyAwareness",v)} multiline /></PageCard>;
+      case "rom": return renderFindingPage("rom");
+      case "strength": return renderFindingPage("strength");
+      case "client": return <PageCard title="Cognition, Communication & Sensory Skills" help="Use quick clinical selections for orientation, cognition, communication, sensory status, and related performance factors. Use the Clinical Assessment page for narrative synthesis."><Stack spacing={2}>
+        <Typography variant="h6">Orientation</Typography>
+        <Typography color="text.secondary">Select each domain the patient is oriented to. A&O ×4 is documented when all four are selected.</Typography>
+        <Stack direction={{xs:"column",sm:"row"}} spacing={1}><FormControlLabel control={<Checkbox checked={f.clientFactors.orientedPerson} disabled={!!disabled} onChange={e=>updateSection("clientFactors","orientedPerson",e.target.checked)} />} label="Person" /><FormControlLabel control={<Checkbox checked={f.clientFactors.orientedPlace} disabled={!!disabled} onChange={e=>updateSection("clientFactors","orientedPlace",e.target.checked)} />} label="Place" /><FormControlLabel control={<Checkbox checked={f.clientFactors.orientedTime} disabled={!!disabled} onChange={e=>updateSection("clientFactors","orientedTime",e.target.checked)} />} label="Time" /><FormControlLabel control={<Checkbox checked={f.clientFactors.orientedSituation} disabled={!!disabled} onChange={e=>updateSection("clientFactors","orientedSituation",e.target.checked)} />} label="Situation" /></Stack>
+        <SelectField label="Cognitive / command-following status" value={f.clientFactors.cognition} options={["Alert / appropriate","Follows simple commands","Follows multi-step commands","Requires intermittent cues","Requires frequent cues","Inconsistent command following","Unable to assess"]} disabled={!!disabled} onChange={v=>updateSection("clientFactors","cognition",v)} />
+        <SelectField label="Communication" value={f.clientFactors.communication} options={["Functional verbal communication","Verbal communication with extra time","Uses communication device / alternative communication","Limited by cognition","Limited by hearing","Unable to assess"]} disabled={!!disabled} onChange={v=>updateSection("clientFactors","communication",v)} />
+        <Stack direction={{xs:"column",sm:"row"}} spacing={1.5}><SelectField label="Vision" value={f.clientFactors.vision} options={["Functional for observed tasks","Uses corrective lenses","Mildly impaired","Moderately impaired","Severely impaired","Unable to assess"]} disabled={!!disabled} onChange={v=>updateSection("clientFactors","vision",v)} /><SelectField label="Hearing" value={f.clientFactors.hearing} options={["Functional for conversation","Uses hearing aids","Mildly impaired","Moderately impaired","Severely impaired","Unable to assess"]} disabled={!!disabled} onChange={v=>updateSection("clientFactors","hearing",v)} /></Stack>
+        <Stack direction={{xs:"column",sm:"row"}} spacing={1.5}><SelectField label="Sensation" value={f.clientFactors.sensation} options={["Intact for observed tasks","Mildly impaired","Moderately impaired","Severely impaired","Unable to assess"]} disabled={!!disabled} onChange={v=>updateSection("clientFactors","sensation",v)} /><SelectField label="Coordination" value={f.clientFactors.coordination} options={["Functional","Mildly impaired","Moderately impaired","Severely impaired","Unable to assess"]} disabled={!!disabled} onChange={v=>updateSection("clientFactors","coordination",v)} /></Stack>
+        <Stack direction={{xs:"column",sm:"row"}} spacing={1.5}><SelectField label="Balance" value={f.clientFactors.balance} options={["Functional / independent","Mildly impaired","Moderately impaired","Severely impaired","Unable to assess"]} disabled={!!disabled} onChange={v=>updateSection("clientFactors","balance",v)} /><SelectField label="Endurance / activity tolerance" value={f.clientFactors.endurance} options={["Functional for task","Mildly limited","Moderately limited","Severely limited","Unable to assess"]} disabled={!!disabled} onChange={v=>updateSection("clientFactors","endurance",v)} /></Stack>
+        <SelectField label="Motor planning / praxis" value={f.clientFactors.motorPlanning} options={["Functional","Mildly impaired","Moderately impaired","Severely impaired","Unable to assess"]} disabled={!!disabled} onChange={v=>updateSection("clientFactors","motorPlanning",v)} />
+        <SelectField label="Functional mobility" value={f.clientFactors.functionalMobility} options={["Functional","Requires supervision / cues","Requires physical assistance","Unable to assess"]} disabled={!!disabled} onChange={v=>updateSection("clientFactors","functionalMobility",v)} />
+        </Stack></PageCard>;
+      case "assessment": return <PageCard title="Clinical Assessment / OT Analysis" help="Synthesize the evaluation findings into one clinical narrative. Include strengths, impairments, activity limitations, participation restrictions, occupational performance problems, and why skilled OT is indicated."><Field label="Assessment / Clinical Impression" value={f.clinicalAssessment.assessmentSummary} disabled={!!disabled} onChange={v=>updateSection("clinicalAssessment","assessmentSummary",v)} multiline minRows={16} placeholder="Synthesize the relevant findings and explain their impact on occupational performance and the need for skilled OT." /><SelectField label="Rehabilitation prognosis" value={f.clinicalAssessment.prognosis} options={["Good","Fair","Guarded","Unable to determine"]} disabled={!!disabled} onChange={v=>updateSection("clinicalAssessment","prognosis",v)} /></PageCard>;
+      case "goals": {
+        const goals = f.goalsPlanOfCare.goals;
+        const baseline: { plof: AssistanceLevel; current: AssistanceLevel } = goalDraft.occupation
+          ? { plof: f.adlStatus.plof[goalDraft.occupation] ?? "", current: f.adlStatus.current[goalDraft.occupation] ?? "" }
+          : { plof: "", current: "" };
+        const draftWithBaseline: OTGoal = { ...goalDraft, plof: baseline.plof || goalDraft.plof, current: baseline.current || goalDraft.current };
+        const preview = buildGoalStatement(draftWithBaseline);
+        const wizardStep = GOAL_WIZARD_STEPS[goalWizardStep];
+        const wizardOptions =
+          wizardStep.key === "occupation" ? ADLS.map(([key,label]) => ({ value: key, label })) :
+          wizardStep.key === "target" ? ASSISTANCE_OPTIONS.filter(x => x !== "" && x !== "Not Assessed" && x !== "Not Applicable").map(x => ({ value: x, label: x })) :
+          wizardStep.key === "timeframe" ? GOAL_TIMEFRAMES.map(x => ({ value: x, label: x })) :
+          GOAL_PHRASES[wizardStep.key].map(x => ({ value: x, label: x }));
 
-        <Divider>OR</Divider>
+        function chooseWizardValue(value: string) {
+          setGoalDraft(g => ({ ...g, [wizardStep.key]: value }));
+        }
+        function addGoal() {
+          if (!goalDraft.occupation || !goalDraft.target || !goalDraft.timeframe || !goalDraft.performanceProblem.trim()) {
+            setMessage("Complete the guided goal builder before adding the goal.");
+            return;
+          }
+          const finalGoal: OTGoal = { ...draftWithBaseline, id: crypto.randomUUID(), goalStatement: goalDraft.goalStatement.trim() || preview };
+          const nextGoals = [...goals, finalGoal];
+          updateGoals(nextGoals);
+          setGoalDraft(blankGoal());
+          setGoalWizardStep(0);
+          setGoalWizardOpen(false);
+          setMessage("");
+        }
+        function removeGoal(id: string) {
+          const nextGoals = goals.filter(g => g.id !== id);
+          updateGoals(nextGoals);
+        }
+        return <PageCard title="Goals" help="Build measurable, occupation-based goals from the patient's documented baseline. Work through the guided phrase selections, then review the generated statement before adding it.">
+          <Alert severity="info">The goal builder is designed to make you practice the pieces of a functional OT goal: occupation → target → functional problem → condition → measurement → timeframe.</Alert>
+          <Button variant="contained" size="large" onClick={()=>openGoalBuilder()} disabled={!!disabled}>Open Guided Goal Builder</Button>
 
-        <Card>
-          <CardContent>
-            <Stack spacing={2}>
-              <Typography variant="h5">Resume an evaluation</Typography>
-              <TextField label="Resume code" placeholder="SNF-8K4X-27QP" value={resumeCode} onChange={(e) => setResumeCode(e.target.value.toUpperCase())} />
-              <Button variant="outlined" size="large" onClick={resumeEvaluation} disabled={busy}>Resume Evaluation</Button>
-            </Stack>
-          </CardContent>
-        </Card>
+          <Dialog open={goalWizardOpen} onClose={()=>setGoalWizardOpen(false)} fullWidth maxWidth="md">
+            <DialogTitle>Build an OT Goal</DialogTitle>
+            <DialogContent dividers>
+              <Stack spacing={2}>
+                <Typography color="text.secondary">Step {goalWizardStep + 1} of {GOAL_WIZARD_STEPS.length}</Typography>
+                <Typography variant="h6">{wizardStep.title}</Typography>
+                <Typography color="text.secondary">{wizardStep.help}</Typography>
+                {goalContext && <Alert severity="info">Started from: <strong>{goalContext}</strong>{!goalDraft.occupation && " — now connect this finding to an occupation."}</Alert>}
+                {wizardStep.key === "occupation" && goalDraft.occupation && <Card variant="outlined"><CardContent><Typography fontWeight={700}>{ADLS.find(([key])=>key===goalDraft.occupation)?.[1]} baseline</Typography><Typography>PLOF: <strong>{baseline.plof || "Not documented"}</strong></Typography><Typography>Current: <strong>{baseline.current || "Not documented"}</strong></Typography></CardContent></Card>}
+                <Stack spacing={1}>
+                  {wizardOptions.map(option => <Button key={option.value} variant={goalDraft[wizardStep.key] === option.value ? "contained" : "outlined"} onClick={()=>chooseWizardValue(option.value)} sx={{justifyContent:"flex-start",textTransform:"none",py:1.4}}>{option.label}</Button>)}
+                </Stack>
+                {(wizardStep.key === "performanceProblem" || wizardStep.key === "condition" || wizardStep.key === "measurableCriterion") && <Field label="Or enter your own phrase" value={String(goalDraft[wizardStep.key])} disabled={!!disabled} onChange={v=>setGoalDraft(g=>({...g,[wizardStep.key]:v}))} multiline minRows={2} />}
+                {wizardStep.key === "occupation" && goalDraft.occupation && <Typography color="text.secondary">Selected: {ADLS.find(([key])=>key===goalDraft.occupation)?.[1]}</Typography>}
+                {wizardStep.key === "target" && goalDraft.target && <Typography color="text.secondary">Selected: {goalDraft.target}</Typography>}
+                {wizardStep.key === "condition" && goalDraft.condition && <Typography color="text.secondary">Selected: {goalDraft.condition}</Typography>}
+                {wizardStep.key === "measurableCriterion" && goalDraft.measurableCriterion && <Typography color="text.secondary">Selected: {goalDraft.measurableCriterion}</Typography>}
+                {wizardStep.key === "timeframe" && goalDraft.timeframe && <Typography color="text.secondary">Selected: {goalDraft.timeframe}</Typography>}
+                {goalWizardStep === GOAL_WIZARD_STEPS.length - 1 && preview && <Card variant="outlined"><CardContent><Typography fontWeight={700}>Goal preview</Typography><Typography sx={{mt:1}}>{preview}</Typography></CardContent></Card>}
+              </Stack>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={()=>setGoalWizardStep(Math.max(0,goalWizardStep-1))} disabled={goalWizardStep===0}>Back</Button>
+              {goalWizardStep < GOAL_WIZARD_STEPS.length - 1 ? <Button variant="contained" onClick={()=>setGoalWizardStep(goalWizardStep+1)} disabled={!goalDraft[wizardStep.key]}>Next</Button> :
+                <Button variant="contained" onClick={addGoal} disabled={!goalDraft.occupation || !goalDraft.target || !goalDraft.performanceProblem.trim() || !goalDraft.timeframe}>Add Goal</Button>}
+            </DialogActions>
+          </Dialog>
 
-        <Alert severity="info">
-          Evaluations are stored in Firebase. Resume codes can be used to continue a draft.
-        </Alert>
+          <Divider />
+          <Typography variant="h6">Goals in this evaluation</Typography>
+          {goals.length === 0 ? <Typography color="text.secondary">No goals added yet.</Typography> : <Stack spacing={1.5}>{goals.map((goal,index)=><Card variant="outlined" key={goal.id || index}><CardContent><Stack spacing={1}><Stack direction="row" justifyContent="space-between" alignItems="center"><Typography fontWeight={700}>{goal.type} Goal {index+1}</Typography><Button color="error" size="small" onClick={()=>removeGoal(goal.id)}>Remove</Button></Stack><Typography>{goal.goalStatement}</Typography><Typography variant="body2" color="text.secondary">{ADLS.find(([key])=>key===goal.occupation)?.[1] || goal.occupation} · Baseline: {goal.current || "Not documented"} · Target: {goal.target || "Not documented"} · {goal.timeframe || "No timeframe"}</Typography></Stack></CardContent></Card>)}</Stack>}
+        </PageCard>;
+      }
+      case "plan": return <PageCard title="Plan of Care"><Stack spacing={2}><Stack direction={{xs:"column",sm:"row"}} spacing={1.5}><Field label="Frequency" value={f.goalsPlanOfCare.frequency} disabled={!!disabled} onChange={v=>updateSection("goalsPlanOfCare","frequency",v)} /><Field label="Duration" value={f.goalsPlanOfCare.duration} disabled={!!disabled} onChange={v=>updateSection("goalsPlanOfCare","duration",v)} /></Stack><Typography fontWeight={600}>Planned skilled interventions</Typography>{INTERVENTIONS.map(i=><FormControlLabel key={i} control={<Checkbox checked={f.goalsPlanOfCare.treatmentInterventions.includes(i)} disabled={!!disabled} onChange={e=>updateSection("goalsPlanOfCare","treatmentInterventions",e.target.checked?[...f.goalsPlanOfCare.treatmentInterventions,i]:f.goalsPlanOfCare.treatmentInterventions.filter(x=>x!==i))}/>} label={i}/>)}<Field label="Patient / caregiver education" value={f.goalsPlanOfCare.patientCaregiverEducation} disabled={!!disabled} onChange={v=>updateSection("goalsPlanOfCare","patientCaregiverEducation",v)} multiline minRows={6}/><Field label="Discharge planning / anticipated disposition" value={f.goalsPlanOfCare.dischargePlan} disabled={!!disabled} onChange={v=>updateSection("goalsPlanOfCare","dischargePlan",v)} multiline minRows={6}/></Stack></PageCard>;
+      case "gg": return <PageCard title="Section GG" help="Educational reference only. This is not an official MDS or billing form."><Stack spacing={1.5}>{([["eating","Eating"],["oralHygiene","Oral hygiene"],["toiletingHygiene","Toileting hygiene"],["showerBathing","Shower / bathing"],["upperBodyDressing","Upper-body dressing"],["lowerBodyDressing","Lower-body dressing"],["footwear","Footwear"],["rolling","Rolling"],["sitToLying","Sit to lying"],["lyingToSitting","Lying to sitting"],["sitToStand","Sit to stand"],["chairBedTransfer","Chair / bed transfer"],["toiletTransfer","Toilet transfer"],["walking10Feet","Walking 10 feet"],["walking50FeetTurn","Walking 50 feet with turns"],["stairs","Stairs"]] as const).map(([key,label])=><SelectField key={key} label={label} value={f.sectionGG[key]} options={GG_OPTIONS.map(x=>x.label)} disabled={!!disabled} onChange={v=>updateSection("sectionGG",key,GG_OPTIONS.find(x=>x.label===v)?.code ?? "")}/>)}<Field label="Section GG notes / reasoning" value={f.sectionGG.ggNotes} disabled={!!disabled} onChange={v=>updateSection("sectionGG","ggNotes",v)} multiline minRows={6}/></Stack></PageCard>;
+      case "review": return <PageCard title="Review / Attestation">
+        {evaluation.status === "submitted" ? (
+          <Alert severity="success">
+            <Typography fontWeight={700}>Evaluation submitted</Typography>
+            <Typography>This evaluation is now read-only. You can review the completed evaluation using the navigation.</Typography>
+          </Alert>
+        ) : (
+          <Alert severity="info">Review your work before submitting. Once submitted, this evaluation becomes read-only.</Alert>
+        )}
+        <Typography>Progress: {progress}%</Typography>
+        <LinearProgress variant="determinate" value={progress}/>
+        <Field label="Student name" value={f.signatureAttestation.studentName} disabled={!!disabled} onChange={v=>updateSection("signatureAttestation","studentName",v)}/>
+        <Field label="Credentials / role" value={f.signatureAttestation.credentials} disabled={!!disabled} onChange={v=>updateSection("signatureAttestation","credentials",v)}/>
+        <FormControlLabel
+          control={<Checkbox checked={f.signatureAttestation.attestation} disabled={!!disabled} onChange={e=>updateSection("signatureAttestation","attestation",e.target.checked)}/>}
+          label="I attest that this is my educational evaluation work based on a fictional case and that I believe that the Detroit Lions will win the superbowl"
+        />
+        {evaluation.status === "submitted" ? (
+          <Stack spacing={1.5}>
+            <Typography variant="body2" color="text.secondary">Resume code: {evaluation.resumeCode}</Typography>
+            <Button variant="outlined" onClick={startNewEvaluation}>Start New Evaluation</Button>
+          </Stack>
+        ) : (
+          <Button
+            variant="contained"
+            color="primary"
+            size="large"
+            onClick={() => {
+              if (!f.signatureAttestation.attestation) {
+                setMessage("Complete the attestation before submitting.");
+                return;
+              }
+              setSubmitDialogOpen(true);
+            }}
+            disabled={!!disabled}
+          >
+            Submit Evaluation
+          </Button>
+        )}
+      </PageCard>;
+    }
+  }
 
-        {message && <Alert severity="error">{message}</Alert>}
+  if (screen === "evaluation" && evaluation) return <Container maxWidth="xl" sx={{ py: 3 }}><Stack spacing={2}>
+    <Stack direction={{xs:"column",lg:"row"}} spacing={2} alignItems={{xs:"flex-start",lg:"center"}} justifyContent="space-between"><Box><Typography variant="h4" fontWeight={800}>SNF OT Initial Evaluation</Typography><Typography color="text.secondary">Student: {evaluation.studentName} · Resume code: {evaluation.resumeCode}</Typography></Box><Chip label={evaluation.status === "submitted" ? "Submitted" : "Draft"}/></Stack>
+    <LinearProgress variant="determinate" value={progress}/>
+    <Stack direction={{xs:"column",md:"row"}} spacing={3} alignItems="flex-start">
+      <Card sx={{ width:{xs:"100%",md:260}, position:{md:"sticky"}, top:{md:16} }}><CardContent><Typography fontWeight={700} sx={{mb:1}}>Evaluation sections</Typography><Stack spacing={0.5}>{PAGES.map(([id,title],i)=><Button key={id} fullWidth sx={{justifyContent:"flex-start",textAlign:"left"}} variant={page===id?"contained":"text"} onClick={()=>setPage(id as PageId)}>{i+1}. {title}</Button>)}</Stack></CardContent></Card>
+      <Box sx={{ flex:1, minWidth:0 }}>{renderPage()}<Stack direction="row" justifyContent="space-between" sx={{mt:2}}><Button disabled={PAGES.findIndex(p=>p[0]===page)===0} onClick={()=>setPage(PAGES[PAGES.findIndex(p=>p[0]===page)-1][0])}>Previous</Button><Button disabled={PAGES.findIndex(p=>p[0]===page)===PAGES.length-1} variant="contained" onClick={()=>setPage(PAGES[PAGES.findIndex(p=>p[0]===page)+1][0])}>Next</Button></Stack></Box>
+    </Stack>
+    {message && <Alert severity={message.includes("saved") || message.includes("submitted") ? "success" : "error"}>{message}</Alert>}
+    <Stack direction={{xs:"column-reverse",sm:"row"}} spacing={1.5} justifyContent="space-between">
+      <Button variant="text" onClick={startNewEvaluation} disabled={busy}>Home / Exit</Button>
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+        <Button variant="outlined" onClick={() => evaluation && exportEvaluationPdf(evaluation)} disabled={!evaluation || busy}>
+          Download PDF
+        </Button>
+        <Button variant="outlined" onClick={saveDraft} disabled={!!disabled}>Save Draft</Button>
       </Stack>
-    </Container>
-  );
+    </Stack>
+
+    <Dialog open={submitDialogOpen} onClose={() => !busy && setSubmitDialogOpen(false)} maxWidth="sm" fullWidth>
+      <DialogTitle>Submit Evaluation?</DialogTitle>
+      <DialogContent dividers>
+        <Stack spacing={2}>
+          <Typography>
+            Once you submit this evaluation, it will be saved to Firebase and become read-only.
+          </Typography>
+          <Typography color="text.secondary">
+            You will still be able to review the completed evaluation, but you will not be able to edit it.
+          </Typography>
+          <Alert severity="warning">
+            Make sure you have reviewed your documentation before submitting.
+          </Alert>
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => setSubmitDialogOpen(false)} disabled={busy}>Cancel</Button>
+        <Button variant="contained" onClick={submitEvaluation} disabled={busy}>Submit Evaluation</Button>
+      </DialogActions>
+    </Dialog>
+  </Stack></Container>;
+
+  return <Container maxWidth="sm" sx={{py:8}}><Stack spacing={3}><Box><Typography variant="h3" fontWeight={800}>SNF OT Evaluation</Typography><Typography variant="h6" color="text.secondary">Interactive teaching and practice tool for SNF OT initial evaluations.</Typography></Box><Alert severity="info"><Typography fontWeight={700}>Educational Demonstration</Typography><Typography variant="body2" sx={{mt:0.5}}>This is an early prototype designed to demonstrate the workflow and documentation structure of a skilled nursing facility occupational therapy initial evaluation. All patient information is fictional. Some features, including save/resume functionality, are still undergoing testing and refinement.</Typography></Alert><Card><CardContent><Stack spacing={2}><Typography variant="h5">Start a blank evaluation</Typography><Field label="Student name" value={studentName} disabled={busy} onChange={setStudentName}/><Button variant="contained" size="large" onClick={startEvaluation} disabled={busy}>Start Evaluation</Button></Stack></CardContent></Card><Divider>OR</Divider><Card><CardContent><Stack spacing={2}><Typography variant="h5">Resume an evaluation</Typography><Field label="Resume code" value={resumeCode} disabled={busy} onChange={v=>setResumeCode(v.toUpperCase())}/><Button variant="outlined" size="large" onClick={resumeEvaluation} disabled={busy}>Resume Evaluation</Button></Stack></CardContent></Card>{message&&<Alert severity="error">{message}</Alert>}</Stack></Container>;
 }
