@@ -581,7 +581,16 @@ export default function App() {
         }
 
         function editGoal(goal: OTGoal) {
-          openGoalBuilder(goal, "");
+          // Generated goals should regenerate when their component fields are edited.
+          // A genuinely custom goal statement should remain intact until the student changes it.
+          const generatedStatement = buildGoalStatement(goal);
+          openGoalBuilder(
+            {
+              ...goal,
+              goalStatement: goal.goalStatement.trim() === generatedStatement.trim() ? "" : goal.goalStatement,
+            },
+            "",
+          );
         }
 
         function removeGoal(id: string) {
