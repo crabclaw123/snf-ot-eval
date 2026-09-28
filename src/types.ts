@@ -43,7 +43,7 @@ export interface OTGoal {
   occupation: string;
   plof: AssistanceLevel;
   current: AssistanceLevel;
-  target: AssistanceLevel;
+  target: string;
   performanceProblem: string;
   condition: string;
   measurableCriterion: string;
