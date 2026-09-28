@@ -543,7 +543,11 @@ export default function App() {
         const baseline: { plof: AssistanceLevel; current: AssistanceLevel } = goalDraft.occupation
           ? { plof: f.adlStatus.plof[goalDraft.occupation] ?? "", current: f.adlStatus.current[goalDraft.occupation] ?? "" }
           : { plof: "", current: "" };
-        const draftWithBaseline: OTGoal = { ...goalDraft, plof: baseline.plof || goalDraft.plof, current: baseline.current || goalDraft.current };
+        const draftWithBaseline: OTGoal = {
+          ...goalDraft,
+          plof: goalDraft.plof || baseline.plof,
+          current: goalDraft.current || baseline.current,
+        };
         const preview = buildGoalStatement(draftWithBaseline);
         const wizardStep = GOAL_WIZARD_STEPS[goalWizardStep];
         const wizardOptions =
@@ -555,58 +559,108 @@ export default function App() {
         function chooseWizardValue(value: string) {
           setGoalDraft(g => ({ ...g, [wizardStep.key]: value }));
         }
-        function addGoal() {
-          if (!goalDraft.occupation || !goalDraft.target || !goalDraft.timeframe || !goalDraft.performanceProblem.trim()) {
-            setMessage("Complete the guided goal builder before adding the goal.");
+
+        function saveGoal() {
+          const finalGoal: OTGoal = {
+            ...draftWithBaseline,
+            id: goalDraft.id || crypto.randomUUID(),
+            goalStatement: goalDraft.goalStatement.trim() || preview,
+          };
+          if (!finalGoal.occupation.trim() || !finalGoal.target.trim() || !finalGoal.timeframe.trim() || !finalGoal.performanceProblem.trim()) {
+            setMessage("Complete the occupation, target, functional problem, and timeframe before saving the goal.");
             return;
           }
-          const finalGoal: OTGoal = { ...draftWithBaseline, id: crypto.randomUUID(), goalStatement: goalDraft.goalStatement.trim() || preview };
-          const nextGoals = [...goals, finalGoal];
+          const nextGoals = goalDraft.id
+            ? goals.map(g => g.id === goalDraft.id ? finalGoal : g)
+            : [...goals, finalGoal];
           updateGoals(nextGoals);
           setGoalDraft(blankGoal());
           setGoalWizardStep(0);
           setGoalWizardOpen(false);
           setMessage("");
         }
+
+        function editGoal(goal: OTGoal) {
+          openGoalBuilder(goal, "");
+        }
+
         function removeGoal(id: string) {
           const nextGoals = goals.filter(g => g.id !== id);
           updateGoals(nextGoals);
         }
-        return <PageCard title="Goals" help="Build measurable, occupation-based goals from the patient's documented baseline. Work through the guided phrase selections, then review the generated statement before adding it.">
-          <Alert severity="info">The goal builder is designed to make you practice the pieces of a functional OT goal: occupation → target → functional problem → condition → measurement → timeframe.</Alert>
+
+        const isEditing = Boolean(goalDraft.id);
+
+        return <PageCard title="Goals" help="Build measurable, occupation-based goals from the patient's documented baseline. Presets are suggestions—you can customize individual steps or write the complete goal yourself.">
+          <Alert severity="info">Use the guided steps to build a goal, mix presets with your own wording, or write the complete goal yourself. If performance documentation changes later, edit the goal and update its PLOF/current level before saving.</Alert>
           <Button variant="contained" size="large" onClick={()=>openGoalBuilder()} disabled={!!disabled}>Open Guided Goal Builder</Button>
 
-          <Dialog open={goalWizardOpen} onClose={()=>setGoalWizardOpen(false)} fullWidth maxWidth="md">
-            <DialogTitle>Build an OT Goal</DialogTitle>
+          <Dialog open={goalWizardOpen} onClose={()=>{setGoalWizardOpen(false);setGoalDraft(blankGoal());setGoalWizardStep(0);}} fullWidth maxWidth="md">
+            <DialogTitle>{isEditing ? "Edit an OT Goal" : "Build an OT Goal"}</DialogTitle>
             <DialogContent dividers>
               <Stack spacing={2}>
                 <Typography color="text.secondary">Step {goalWizardStep + 1} of {GOAL_WIZARD_STEPS.length}</Typography>
                 <Typography variant="h6">{wizardStep.title}</Typography>
                 <Typography color="text.secondary">{wizardStep.help}</Typography>
                 {goalContext && <Alert severity="info">Started from: <strong>{goalContext}</strong>{!goalDraft.occupation && " — now connect this finding to an occupation."}</Alert>}
-                {wizardStep.key === "occupation" && goalDraft.occupation && <Card variant="outlined"><CardContent><Typography fontWeight={700}>{ADLS.find(([key])=>key===goalDraft.occupation)?.[1]} baseline</Typography><Typography>PLOF: <strong>{baseline.plof || "Not documented"}</strong></Typography><Typography>Current: <strong>{baseline.current || "Not documented"}</strong></Typography></CardContent></Card>}
-                <Stack spacing={1}>
-                  {wizardOptions.map(option => <Button key={option.value} variant={goalDraft[wizardStep.key] === option.value ? "contained" : "outlined"} onClick={()=>chooseWizardValue(option.value)} sx={{justifyContent:"flex-start",textTransform:"none",py:1.4}}>{option.label}</Button>)}
-                </Stack>
+
+                {wizardStep.key === "occupation" && (
+                  <Stack spacing={2}>
+                    <Stack spacing={1}>
+                      {wizardOptions.map(option => <Button key={option.value} variant={goalDraft.occupation === option.value ? "contained" : "outlined"} onClick={()=>chooseWizardValue(option.value)} sx={{justifyContent:"flex-start",textTransform:"none",py:1.2}}>{option.label}</Button>)}
+                    </Stack>
+                    <Field label="Or enter your own occupation / activity" value={goalDraft.occupation} disabled={!!disabled} onChange={v=>setGoalDraft(g=>({...g,occupation:v}))} placeholder="Example: Meal preparation, medication management, or returning to a hobby" />
+                    {goalDraft.occupation && <Stack spacing={1.5}>
+                      <Typography fontWeight={700}>Baseline for this occupation</Typography>
+                      <SelectField label="Prior level of function (PLOF)" value={goalDraft.plof} options={ASSISTANCE_OPTIONS.filter(x=>x!=="" && x!=="Not Assessed" && x!=="Not Applicable")} disabled={!!disabled} onChange={v=>setGoalDraft(g=>({...g,plof:v as AssistanceLevel}))} />
+                      <SelectField label="Current level of function" value={goalDraft.current} options={ASSISTANCE_OPTIONS.filter(x=>x!=="" && x!=="Not Assessed" && x!=="Not Applicable")} disabled={!!disabled} onChange={v=>setGoalDraft(g=>({...g,current:v as AssistanceLevel}))} />
+                      <Typography variant="body2" color="text.secondary">These values start from the Performance page when documented, but you can correct them here if you created the goal before documenting the ADL.</Typography>
+                    </Stack>}
+                  </Stack>
+                )}
+
+                {wizardStep.key !== "occupation" && (
+                  <Stack spacing={1}>
+                    {wizardOptions.map(option => <Button key={option.value} variant={goalDraft[wizardStep.key] === option.value ? "contained" : "outlined"} onClick={()=>chooseWizardValue(option.value)} sx={{justifyContent:"flex-start",textTransform:"none",py:1.4}}>{option.label}</Button>)}
+                  </Stack>
+                )}
+
                 {(wizardStep.key === "performanceProblem" || wizardStep.key === "condition" || wizardStep.key === "measurableCriterion") && <Field label="Or enter your own phrase" value={String(goalDraft[wizardStep.key])} disabled={!!disabled} onChange={v=>setGoalDraft(g=>({...g,[wizardStep.key]:v}))} multiline minRows={2} />}
-                {wizardStep.key === "occupation" && goalDraft.occupation && <Typography color="text.secondary">Selected: {ADLS.find(([key])=>key===goalDraft.occupation)?.[1]}</Typography>}
-                {wizardStep.key === "target" && goalDraft.target && <Typography color="text.secondary">Selected: {goalDraft.target}</Typography>}
-                {wizardStep.key === "condition" && goalDraft.condition && <Typography color="text.secondary">Selected: {goalDraft.condition}</Typography>}
-                {wizardStep.key === "measurableCriterion" && goalDraft.measurableCriterion && <Typography color="text.secondary">Selected: {goalDraft.measurableCriterion}</Typography>}
-                {wizardStep.key === "timeframe" && goalDraft.timeframe && <Typography color="text.secondary">Selected: {goalDraft.timeframe}</Typography>}
-                {goalWizardStep === GOAL_WIZARD_STEPS.length - 1 && preview && <Card variant="outlined"><CardContent><Typography fontWeight={700}>Goal preview</Typography><Typography sx={{mt:1}}>{preview}</Typography></CardContent></Card>}
+                {wizardStep.key === "target" && <Field label="Or enter your own target performance level" value={goalDraft.target} disabled={!!disabled} onChange={v=>setGoalDraft(g=>({...g,target:v}))} placeholder="Example: setup assistance, independent with adaptive equipment, or completes task safely" />}
+                {wizardStep.key === "timeframe" && <Field label="Or enter your own timeframe" value={goalDraft.timeframe} disabled={!!disabled} onChange={v=>setGoalDraft(g=>({...g,timeframe:v}))} placeholder="Example: within 10 treatment sessions" />}
+
+                {wizardStep.key === "occupation" && goalDraft.occupation && <Typography color="text.secondary">Selected occupation: {ADLS.find(([key])=>key===goalDraft.occupation)?.[1] || goalDraft.occupation}</Typography>}
+                {wizardStep.key === "target" && goalDraft.target && <Typography color="text.secondary">Target: {goalDraft.target}</Typography>}
+                {wizardStep.key === "condition" && goalDraft.condition && <Typography color="text.secondary">Condition: {goalDraft.condition}</Typography>}
+                {wizardStep.key === "measurableCriterion" && goalDraft.measurableCriterion && <Typography color="text.secondary">Measurement: {goalDraft.measurableCriterion}</Typography>}
+                {wizardStep.key === "timeframe" && goalDraft.timeframe && <Typography color="text.secondary">Timeframe: {goalDraft.timeframe}</Typography>}
+
+                {goalWizardStep === GOAL_WIZARD_STEPS.length - 1 && (
+                  <Stack spacing={2}>
+                    {preview && <Card variant="outlined"><CardContent><Typography fontWeight={700}>Generated goal preview</Typography><Typography sx={{mt:1}}>{preview}</Typography></CardContent></Card>}
+                    <Field
+                      label="Or write your complete goal statement"
+                      value={goalDraft.goalStatement}
+                      disabled={!!disabled}
+                      onChange={v=>setGoalDraft(g=>({...g,goalStatement:v}))}
+                      multiline
+                      minRows={5}
+                      placeholder="Write the full goal in your own clinical wording. If you leave this blank, the generated goal above will be used."
+                    />
+                  </Stack>
+                )}
               </Stack>
             </DialogContent>
             <DialogActions>
               <Button onClick={()=>setGoalWizardStep(Math.max(0,goalWizardStep-1))} disabled={goalWizardStep===0}>Back</Button>
               {goalWizardStep < GOAL_WIZARD_STEPS.length - 1 ? <Button variant="contained" onClick={()=>setGoalWizardStep(goalWizardStep+1)} disabled={!goalDraft[wizardStep.key]}>Next</Button> :
-                <Button variant="contained" onClick={addGoal} disabled={!goalDraft.occupation || !goalDraft.target || !goalDraft.performanceProblem.trim() || !goalDraft.timeframe}>Add Goal</Button>}
+                <Button variant="contained" onClick={saveGoal} disabled={!goalDraft.occupation || !goalDraft.target || !goalDraft.performanceProblem.trim() || !goalDraft.timeframe}> {isEditing ? "Save Changes" : "Add Goal"} </Button>}
             </DialogActions>
           </Dialog>
 
           <Divider />
           <Typography variant="h6">Goals in this evaluation</Typography>
-          {goals.length === 0 ? <Typography color="text.secondary">No goals added yet.</Typography> : <Stack spacing={1.5}>{goals.map((goal,index)=><Card variant="outlined" key={goal.id || index}><CardContent><Stack spacing={1}><Stack direction="row" justifyContent="space-between" alignItems="center"><Typography fontWeight={700}>{goal.type} Goal {index+1}</Typography><Button color="error" size="small" onClick={()=>removeGoal(goal.id)}>Remove</Button></Stack><Typography>{goal.goalStatement}</Typography><Typography variant="body2" color="text.secondary">{ADLS.find(([key])=>key===goal.occupation)?.[1] || goal.occupation} · Baseline: {goal.current || "Not documented"} · Target: {goal.target || "Not documented"} · {goal.timeframe || "No timeframe"}</Typography></Stack></CardContent></Card>)}</Stack>}
+          {goals.length === 0 ? <Typography color="text.secondary">No goals added yet.</Typography> : <Stack spacing={1.5}>{goals.map((goal,index)=><Card variant="outlined" key={goal.id || index}><CardContent><Stack spacing={1}><Stack direction="row" justifyContent="space-between" alignItems="center"><Typography fontWeight={700}>{goal.type} Goal {index+1}</Typography><Stack direction="row" spacing={1}><Button size="small" onClick={()=>editGoal(goal)} disabled={!!disabled}>Edit</Button><Button color="error" size="small" onClick={()=>removeGoal(goal.id)} disabled={!!disabled}>Remove</Button></Stack></Stack><Typography>{goal.goalStatement}</Typography><Typography variant="body2" color="text.secondary">{ADLS.find(([key])=>key===goal.occupation)?.[1] || goal.occupation} · PLOF: {goal.plof || "Not documented"} · Current: {goal.current || "Not documented"} · Target: {goal.target || "Not documented"} · {goal.timeframe || "No timeframe"}</Typography></Stack></CardContent></Card>)}</Stack>}
         </PageCard>;
       }
       case "plan": return <PageCard title="Plan of Care"><Stack spacing={2}><Stack direction={{xs:"column",sm:"row"}} spacing={1.5}><Field label="Frequency" value={f.goalsPlanOfCare.frequency} disabled={!!disabled} onChange={v=>updateSection("goalsPlanOfCare","frequency",v)} /><Field label="Duration" value={f.goalsPlanOfCare.duration} disabled={!!disabled} onChange={v=>updateSection("goalsPlanOfCare","duration",v)} /></Stack><Typography fontWeight={600}>Planned skilled interventions</Typography>{INTERVENTIONS.map(i=><FormControlLabel key={i} control={<Checkbox checked={f.goalsPlanOfCare.treatmentInterventions.includes(i)} disabled={!!disabled} onChange={e=>updateSection("goalsPlanOfCare","treatmentInterventions",e.target.checked?[...f.goalsPlanOfCare.treatmentInterventions,i]:f.goalsPlanOfCare.treatmentInterventions.filter(x=>x!==i))}/>} label={i}/>)}<Field label="Patient / caregiver education" value={f.goalsPlanOfCare.patientCaregiverEducation} disabled={!!disabled} onChange={v=>updateSection("goalsPlanOfCare","patientCaregiverEducation",v)} multiline minRows={6}/><Field label="Discharge planning / anticipated disposition" value={f.goalsPlanOfCare.dischargePlan} disabled={!!disabled} onChange={v=>updateSection("goalsPlanOfCare","dischargePlan",v)} multiline minRows={6}/></Stack></PageCard>;
