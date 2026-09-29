@@ -93,6 +93,26 @@ test.describe("SNF OT Evaluation home screen", () => {
       ["Functional mobility / ambulation", "Independent", "Contact Guard Assist"],
     ] as const;
 
+    const selectFieldInCard = async (
+      card: ReturnType<typeof page.getByRole>,
+      label: string,
+      value: string,
+    ) => {
+      const field = card.getByText(label, { exact: true }).locator("..");
+      const combobox = field.getByRole("combobox");
+
+      if ((await combobox.textContent())?.trim() === value) {
+        return;
+      }
+
+      await combobox.click();
+      await page
+        .getByRole("listbox")
+        .getByRole("option", { name: value, exact: true })
+        .click();
+      await expect(combobox).toContainText(value);
+    };
+
     for (const [label, plof, current] of adls) {
       const card = page
         .getByRole("heading", { name: label, exact: true })
@@ -100,15 +120,8 @@ test.describe("SNF OT Evaluation home screen", () => {
         .locator("..")
         .locator("..");
 
-      const plofField = card.getByText("PLOF", { exact: true }).locator("..");
-      await plofField.getByRole("combobox").click();
-      await page.getByRole("listbox").getByRole("option", { name: plof, exact: true }).click();
-      await expect(plofField.getByRole("combobox")).toContainText(plof);
-
-      const currentField = card.getByText("Current level", { exact: true }).locator("..");
-      await currentField.getByRole("combobox").click();
-      await page.getByRole("listbox").getByRole("option", { name: current, exact: true }).click();
-      await expect(currentField.getByRole("combobox")).toContainText(current);
+      await selectFieldInCard(card, "PLOF", plof);
+      await selectFieldInCard(card, "Current level", current);
     }
 
     await page.getByLabel("Current occupational performance / functional observations").fill(
