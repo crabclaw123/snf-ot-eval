@@ -29,10 +29,7 @@ test.describe("SNF OT Evaluation home screen", () => {
 
   test("fills a complete sample evaluation across all sections and saves the draft", async ({ page }) => {
     const selectOption = async (label: string, option: string) => {
-      const field = page
-        .locator(".MuiFormControl-root")
-        .filter({ hasText: label });
-
+      const field = page.getByText(label, { exact: true }).locator("..");
       await field.getByRole("combobox").click();
       await page.getByRole("option", { name: option, exact: true }).click();
     };
@@ -97,13 +94,18 @@ test.describe("SNF OT Evaluation home screen", () => {
     ] as const;
 
     for (const [label, plof, current] of adls) {
-      const card = page.locator(".MuiCard-root").filter({
-        has: page.getByRole("heading", { name: label, exact: true }),
-      });
+      const card = page
+        .getByRole("heading", { name: label, exact: true })
+        .locator("..")
+        .locator("..")
+        .locator("..");
 
-      await card.getByRole("combobox", { name: "PLOF" }).click();
+      const plofField = card.getByText("PLOF", { exact: true }).locator("..");
+      await plofField.getByRole("combobox").click();
       await page.getByRole("option", { name: plof, exact: true }).click();
-      await card.getByRole("combobox", { name: "Current level" }).click();
+
+      const currentField = card.getByText("Current level", { exact: true }).locator("..");
+      await currentField.getByRole("combobox").click();
       await page.getByRole("option", { name: current, exact: true }).click();
     }
 
