@@ -102,11 +102,13 @@ test.describe("SNF OT Evaluation home screen", () => {
 
       const plofField = card.getByText("PLOF", { exact: true }).locator("..");
       await plofField.getByRole("combobox").click();
-      await page.getByRole("option", { name: plof, exact: true }).click();
+      await page.getByRole("listbox").getByRole("option", { name: plof, exact: true }).click();
+      await expect(plofField.getByRole("combobox")).toContainText(plof);
 
       const currentField = card.getByText("Current level", { exact: true }).locator("..");
       await currentField.getByRole("combobox").click();
-      await page.getByRole("option", { name: current, exact: true }).click();
+      await page.getByRole("listbox").getByRole("option", { name: current, exact: true }).click();
+      await expect(currentField.getByRole("combobox")).toContainText(current);
     }
 
     await page.getByLabel("Current occupational performance / functional observations").fill(
