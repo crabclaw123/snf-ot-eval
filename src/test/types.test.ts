@@ -279,8 +279,13 @@ describe("normalizeEvaluation legacy-data handling", () => {
       };
     };
 
-    delete formData.medicalStatus.notes;
-    formData.medicalStatus.precautionsNotes = "Monitor for orthostatic symptoms";
+    const legacyMedicalStatus = {
+      ...formData.medicalStatus,
+      notes: undefined,
+      precautionsNotes: "Monitor for orthostatic symptoms",
+    } as unknown as typeof formData.medicalStatus;
+
+    formData.medicalStatus = legacyMedicalStatus;
 
     // Act
     const normalized = normalizeEvaluation(makeEvaluation(formData));
