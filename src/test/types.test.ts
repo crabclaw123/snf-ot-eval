@@ -248,7 +248,7 @@ describe("normalizeEvaluation legacy-data handling", () => {
       interests: "Gardening",
       patientGoals: "Return to independent dressing",
       occupationalConcerns: "Difficulty managing buttons",
-    };
+    } as typeof formData.occupationalProfile;
 
     // Act
     const normalized = normalizeEvaluation(makeEvaluation(formData));
@@ -332,7 +332,7 @@ describe("normalizeEvaluation legacy-data handling", () => {
       };
     };
 
-    formData.goalsPlanOfCare.goals = "not-an-array";
+    (formData.goalsPlanOfCare as unknown as { goals: unknown }).goals = "not-an-array";
 
     // Act
     const normalized = normalizeEvaluation(makeEvaluation(formData));
