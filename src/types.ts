@@ -19,7 +19,7 @@ export type SectionGGCode = "" | "06" | "05" | "04" | "03" | "02" | "01" | "09" 
 export interface PatientInfo { patientName: string; medicalRecordNumber: string; dateOfBirth: string; evaluationDate: string; medicalDiagnosis: string; reasonForReferral: string; }
 export interface OccupationalProfile { summary: string; }
 export interface EnvironmentPLOF { priorLivingEnvironment: string; equipment: string; plofSummary: string; }
-export interface MedicalStatus { precautions: string[]; weightBearing: string; painLocation: string; painRating: string; vitals: string; medicationsRelevant: string; linesTubesDrains: string; skinWounds: string; medicalStability: string; notes: string; }
+export interface MedicalStatus { precautions: string[]; weightBearing: string; painLocation: string; painRating: string; painInterferesOccupationalParticipation: string; painTiming: string; painDescription: string; vitals: string; medicationsRelevant: string; linesTubesDrains: string; skinWounds: string; medicalStability: string; notes: string; }
 
 export interface ADLStatus {
   plof: Record<string, AssistanceLevel>;
@@ -82,7 +82,7 @@ export const createEmptyFormData = (): EvaluationFormData => {
   return {
     patientInfo:{patientName:"",medicalRecordNumber:"MRN-100001",dateOfBirth:"",evaluationDate:new Date().toISOString().slice(0,10),medicalDiagnosis:"",reasonForReferral:""},
     occupationalProfile:{summary:""}, environmentPLOF:{priorLivingEnvironment:"",equipment:"",plofSummary:""},
-    medicalStatus:{precautions:[],weightBearing:"",painLocation:"",painRating:"",vitals:"",medicationsRelevant:"",linesTubesDrains:"",skinWounds:"",medicalStability:"",notes:""},
+    medicalStatus:{precautions:[],weightBearing:"",painLocation:"",painRating:"",painInterferesOccupationalParticipation:"",painTiming:"",painDescription:"",vitals:"",medicationsRelevant:"",linesTubesDrains:"",skinWounds:"",medicalStability:"",notes:""},
     adlStatus:{plof:makeADLs(),current:makeADLs(),otherOccupations:"",activityTolerance:"",cueingNeeded:"",safetyAwareness:"",observations:""},
     rom:{right:makeROM(),left:makeROM(),notes:""}, strength:{right:makeStrength(),left:makeStrength(),notes:""},
     clientFactors:{orientedPerson:false,orientedPlace:false,orientedTime:false,orientedSituation:false,cognition:"",communication:"",vision:"",hearing:"",sensation:"",pain:"",coordination:"",balance:"",endurance:"",motorPlanning:"",functionalMobility:"",standardizedAssessments:"",assessmentFindings:""},
