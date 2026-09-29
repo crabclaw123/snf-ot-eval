@@ -279,6 +279,7 @@ describe("normalizeEvaluation legacy-data handling", () => {
       };
     };
 
+    delete formData.medicalStatus.notes;
     formData.medicalStatus.precautionsNotes = "Monitor for orthostatic symptoms";
 
     // Act
