@@ -29,7 +29,11 @@ test.describe("SNF OT Evaluation home screen", () => {
 
   test("fills a complete sample evaluation across all sections and saves the draft", async ({ page }) => {
     const selectOption = async (label: string, option: string) => {
-      await page.getByRole("combobox", { name: label }).click();
+      const field = page
+        .locator(".MuiFormControl-root")
+        .filter({ hasText: label });
+
+      await field.getByRole("combobox").click();
       await page.getByRole("option", { name: option, exact: true }).click();
     };
 
