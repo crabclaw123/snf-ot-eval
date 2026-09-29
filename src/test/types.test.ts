@@ -178,3 +178,196 @@ describe("normalizeEvaluation", () => {
     expect(normalized.status).toBe("draft");
   });
 });
+
+
+describe("createEmptyFormData structure", () => {
+  it("creates blank ROM and strength findings for every movement", () => {
+    const formData = createEmptyFormData();
+
+    expect(Object.keys(formData.rom.right)).toHaveLength(13);
+    expect(Object.keys(formData.rom.left)).toHaveLength(13);
+    expect(Object.keys(formData.strength.right)).toHaveLength(13);
+    expect(Object.keys(formData.strength.left)).toHaveLength(13);
+
+    expect(formData.rom.right["Shoulder flexion"]).toEqual({
+      status: "",
+      arom: "",
+      prom: "",
+      notes: "",
+    });
+
+    expect(formData.strength.left["Wrist extension"]).toEqual({
+      status: "",
+      mmt: "",
+      notes: "",
+    });
+  });
+
+  it("initializes client factors, Section GG, and attestation safely", () => {
+    const formData = createEmptyFormData();
+
+    expect(formData.clientFactors.orientedPerson).toBe(false);
+    expect(formData.clientFactors.orientedPlace).toBe(false);
+    expect(formData.sectionGG.eating).toBe("");
+    expect(formData.sectionGG.toiletTransfer).toBe("");
+    expect(formData.signatureAttestation.attestation).toBe(false);
+  });
+
+  it("initializes mutable arrays as independent empty arrays", () => {
+    const first = createEmptyFormData();
+    const second = createEmptyFormData();
+
+    first.medicalStatus.precautions.push("Fall precautions");
+    first.goalsPlanOfCare.treatmentInterventions.push("Therapeutic exercise");
+
+    expect(second.medicalStatus.precautions).toEqual([]);
+    expect(second.goalsPlanOfCare.treatmentInterventions).toEqual([]);
+  });
+});
+
+describe("normalizeEvaluation legacy-data handling", () => {
+  const makeEvaluation = (formData: Evaluation["formData"]): Evaluation => ({
+    id: "legacy-test",
+    resumeCode: "LEGACY01",
+    studentName: "Test Student",
+    status: "draft",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    formData,
+  });
+
+  it("converts legacy occupational profile fields into the current summary", () => {
+    // Arrange
+    const formData = createEmptyFormData() as Evaluation["formData"] & {
+      occupationalProfile: Record<string, string>;
+    };
+
+    formData.occupationalProfile = {
+      roles: "Retired teacher",
+      routines: "Morning routine",
+      interests: "Gardening",
+      patientGoals: "Return to independent dressing",
+      occupationalConcerns: "Difficulty managing buttons",
+    };
+
+    // Act
+    const normalized = normalizeEvaluation(makeEvaluation(formData));
+
+    // Assert
+    expect(normalized.formData.occupationalProfile.summary).toBe(
+      "Retired teacher\nMorning routine\nGardening\nReturn to independent dressing\nDifficulty managing buttons"
+    );
+  });
+
+  it("preserves the current occupational profile summary when it already exists", () => {
+    // Arrange
+    const formData = createEmptyFormData();
+    formData.occupationalProfile.summary = "Current summary";
+
+    // Act
+    const normalized = normalizeEvaluation(makeEvaluation(formData));
+
+    // Assert
+    expect(normalized.formData.occupationalProfile.summary).toBe("Current summary");
+  });
+
+  it("migrates legacy precautions notes into medical status notes", () => {
+    // Arrange
+    const formData = createEmptyFormData() as Evaluation["formData"] & {
+      medicalStatus: Evaluation["formData"]["medicalStatus"] & {
+        precautionsNotes?: string;
+      };
+    };
+
+    formData.medicalStatus.precautionsNotes = "Monitor for orthostatic symptoms";
+
+    // Act
+    const normalized = normalizeEvaluation(makeEvaluation(formData));
+
+    // Assert
+    expect(normalized.formData.medicalStatus.notes).toBe(
+      "Monitor for orthostatic symptoms"
+    );
+  });
+
+  it("preserves current medical notes instead of using legacy precautions notes", () => {
+    // Arrange
+    const formData = createEmptyFormData() as Evaluation["formData"] & {
+      medicalStatus: Evaluation["formData"]["medicalStatus"] & {
+        precautionsNotes?: string;
+      };
+    };
+
+    formData.medicalStatus.notes = "Current clinical note";
+    formData.medicalStatus.precautionsNotes = "Old note";
+
+    // Act
+    const normalized = normalizeEvaluation(makeEvaluation(formData));
+
+    // Assert
+    expect(normalized.formData.medicalStatus.notes).toBe("Current clinical note");
+  });
+
+  it("keeps all current ADL fields when normalizing", () => {
+    // Arrange
+    const formData = createEmptyFormData();
+    formData.adlStatus.current.bathing = "Moderate Assist";
+    formData.adlStatus.current.toiletTransfer = "Contact Guard Assist";
+
+    // Act
+    const normalized = normalizeEvaluation(makeEvaluation(formData));
+
+    // Assert
+    expect(normalized.formData.adlStatus.current.bathing).toBe("Moderate Assist");
+    expect(normalized.formData.adlStatus.current.toiletTransfer).toBe(
+      "Contact Guard Assist"
+    );
+  });
+
+  it("falls back to an empty goals array when saved goals are malformed", () => {
+    // Arrange
+    const formData = createEmptyFormData() as Evaluation["formData"] & {
+      goalsPlanOfCare: Evaluation["formData"]["goalsPlanOfCare"] & {
+        goals: unknown;
+      };
+    };
+
+    formData.goalsPlanOfCare.goals = "not-an-array";
+
+    // Act
+    const normalized = normalizeEvaluation(makeEvaluation(formData));
+
+    // Assert
+    expect(normalized.formData.goalsPlanOfCare.goals).toEqual([]);
+  });
+
+  it("preserves a saved goals array during normalization", () => {
+    // Arrange
+    const formData = createEmptyFormData();
+    formData.goalsPlanOfCare.goals = [
+      {
+        id: "goal-1",
+        type: "Short-term",
+        occupation: "Dressing",
+        plof: "Maximal Assist",
+        current: "Maximal Assist",
+        target: "Minimal Assist",
+        performanceProblem: "Difficulty dressing",
+        condition: "During morning dressing",
+        measurableCriterion: "with 1 verbal cue",
+        timeframe: "2 weeks",
+        goalStatement: "Patient will complete dressing with Minimal Assist.",
+      },
+    ];
+
+    // Act
+    const normalized = normalizeEvaluation(makeEvaluation(formData));
+
+    // Assert
+    expect(normalized.formData.goalsPlanOfCare.goals).toHaveLength(1);
+    expect(normalized.formData.goalsPlanOfCare.goals[0].id).toBe("goal-1");
+    expect(normalized.formData.goalsPlanOfCare.goals[0].occupation).toBe(
+      "Dressing"
+    );
+  });
+});
