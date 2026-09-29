@@ -8,6 +8,7 @@ import { auth, db } from "./firebase";
 import type { Evaluation } from "./types";
 
 const PREFIX = "snf-ot-eval:";
+const IS_E2E_TEST = import.meta.env.VITE_E2E_TEST === "true";
 
 export function generateResumeCode(): string {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -19,6 +20,7 @@ export function generateResumeCode(): string {
 }
 
 export async function ensureAnonymousAuth(): Promise<void> {
+  if (IS_E2E_TEST) return;
   if (auth.currentUser) return;
 
   await new Promise<void>((resolve, reject) => {
@@ -41,6 +43,12 @@ export async function ensureAnonymousAuth(): Promise<void> {
 }
 
 export async function saveEvaluation(evaluation: Evaluation): Promise<void> {
+  if (IS_E2E_TEST) {
+    localStorage.setItem(PREFIX + evaluation.resumeCode, JSON.stringify(evaluation));
+    localStorage.setItem(PREFIX + "last-code", evaluation.resumeCode);
+    return;
+  }
+
   await ensureAnonymousAuth();
   await setDoc(doc(db, "evaluations", evaluation.resumeCode), evaluation);
   localStorage.setItem(PREFIX + evaluation.resumeCode, JSON.stringify(evaluation));
@@ -49,6 +57,15 @@ export async function saveEvaluation(evaluation: Evaluation): Promise<void> {
 
 export async function loadEvaluation(code: string): Promise<Evaluation | null> {
   const normalizedCode = code.trim().toUpperCase();
+
+  if (IS_E2E_TEST) {
+    const raw = localStorage.getItem(PREFIX + normalizedCode);
+    if (!raw) return null;
+
+    const evaluation = JSON.parse(raw) as Evaluation;
+    localStorage.setItem(PREFIX + "last-code", normalizedCode);
+    return evaluation;
+  }
 
   await ensureAnonymousAuth();
   const snapshot = await getDoc(doc(db, "evaluations", normalizedCode));
