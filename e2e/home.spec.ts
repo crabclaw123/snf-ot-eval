@@ -93,8 +93,14 @@ test.describe("SNF OT Evaluation home screen", () => {
     ] as const;
 
     for (const [label, plof, current] of adls) {
-      await selectOption("PLOF", plof);
-      await selectOption("Current level", current);
+      const card = page.locator(".MuiCard-root").filter({
+        has: page.getByRole("heading", { name: label, exact: true }),
+      });
+
+      await card.getByRole("combobox", { name: "PLOF" }).click();
+      await page.getByRole("option", { name: plof, exact: true }).click();
+      await card.getByRole("combobox", { name: "Current level" }).click();
+      await page.getByRole("option", { name: current, exact: true }).click();
     }
 
     await page.getByLabel("Current occupational performance / functional observations").fill(
