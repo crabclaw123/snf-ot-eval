@@ -193,7 +193,10 @@ function exportEvaluationPdf(evaluation: Evaluation) {
   addField("Current equipment / DME / assistive devices", f.environmentPLOF.equipment);
 
   addSection("4. Medical / Clinical Status");
-  addField("Pain rating", f.medicalStatus.painRating ? f.medicalStatus.painRating + "/10" : "");
+  if (f.medicalStatus.painRating !== "") {
+    addText("Pain rating", 9, true);
+    addText(f.medicalStatus.painRating + "/10", 10, false, 8);
+  }
   addField("Pain interferes with occupational participation", f.medicalStatus.painInterferesOccupationalParticipation);
   if (f.medicalStatus.painInterferesOccupationalParticipation === "Yes") {
     addField("Pain timing", f.medicalStatus.painTiming);
@@ -531,12 +534,23 @@ export default function App() {
           <InputLabel>Does pain interfere with occupational participation?</InputLabel>
           <Select value={f.medicalStatus.painInterferesOccupationalParticipation} label="Does pain interfere with occupational participation?" onChange={e => {
             const value = e.target.value;
-            updateSection("medicalStatus", "painInterferesOccupationalParticipation", value);
-            if (value === "No") {
-              updateSection("medicalStatus", "painTiming", "");
-              updateSection("medicalStatus", "painLocation", "");
-              updateSection("medicalStatus", "painDescription", "");
-            }
+            if (!evaluation || evaluation.status === "submitted") return;
+            const next = {
+              ...evaluation,
+              updatedAt: new Date().toISOString(),
+              formData: {
+                ...evaluation.formData,
+                medicalStatus: {
+                  ...evaluation.formData.medicalStatus,
+                  painInterferesOccupationalParticipation: value,
+                  ...(value === "No"
+                    ? { painTiming: "", painLocation: "", painDescription: "" }
+                    : {}),
+                },
+              },
+            } as Evaluation;
+            setEvaluation(next);
+            localStorage.setItem("snf-ot-eval:" + next.resumeCode, JSON.stringify(next));
           }}>
             <MenuItem value=""><em>Select...</em></MenuItem>
             <MenuItem value="Yes">Yes</MenuItem>
