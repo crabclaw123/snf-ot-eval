@@ -248,7 +248,7 @@ describe("normalizeEvaluation legacy-data handling", () => {
       interests: "Gardening",
       patientGoals: "Return to independent dressing",
       occupationalConcerns: "Difficulty managing buttons",
-    } as typeof formData.occupationalProfile;
+    } as unknown as typeof formData.occupationalProfile;
 
     // Act
     const normalized = normalizeEvaluation(makeEvaluation(formData));
