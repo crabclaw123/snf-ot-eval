@@ -64,11 +64,9 @@ test.describe("SNF OT Evaluation home screen", () => {
     await page.getByRole("textbox", { name: "Safety awareness" }).fill("Fair.");
 
     await page.getByRole("button", { name: "5. ROM" }).click();
-    await expect(page.getByRole("heading", { name: "ROM" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Range of Motion" })).toBeVisible();
 
-    await page.getByLabel("AROM (degrees)").fill("90");
-    await page.getByLabel("PROM (degrees)").fill("100");
-    await page.getByLabel("Notes").fill("Mild limitation.");
+    await page.getByLabel("ROM summary / clinical notes").fill("Mild limitation in left hip ROM.");
 
     await page.getByRole("button", { name: "8. Clinical Assessment" }).click();
     await page.getByLabel("Assessment / Clinical Impression").fill(
