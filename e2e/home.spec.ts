@@ -29,21 +29,13 @@ test.describe("SNF OT Evaluation home screen", () => {
 
   test("fills a complete sample evaluation across all sections and saves the draft", async ({ page }) => {
     const selectOpenMenuOption = async (option: string) => {
-      const options = page.getByRole("listbox").getByRole("option");
-      const labels = await options.allTextContents();
-      const targetIndex = labels.findIndex((label) => label.trim() === option);
+      const optionLocator = page.getByRole("listbox").getByRole("option", {
+        name: option,
+        exact: true,
+      });
 
-      if (targetIndex === -1) {
-        throw new Error(`Option not found: ${option}`);
-      }
-
-      await page.keyboard.press("Home");
-
-      for (let i = 0; i < targetIndex; i++) {
-        await page.keyboard.press("ArrowDown");
-      }
-
-      await page.keyboard.press("Enter");
+      await expect(optionLocator).toBeVisible();
+      await optionLocator.click();
     };
 
     const selectOption = async (label: string, option: string) => {
