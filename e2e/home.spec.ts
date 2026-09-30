@@ -106,9 +106,9 @@ test.describe("SNF OT Evaluation home screen", () => {
       }
 
       await combobox.click();
-      await page.getByRole("listbox").waitFor();
-      await combobox.pressSequentially(value);
-      await combobox.press("Enter");
+      const option = page.getByRole("listbox").getByRole("option", { name: value, exact: true });
+      await expect(option).toBeVisible();
+      await option.click({ timeout: 5000 });
       await expect(combobox).toContainText(value);
     };
 
