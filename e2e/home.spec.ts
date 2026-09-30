@@ -115,10 +115,6 @@ test.describe("SNF OT Evaluation home screen", () => {
       const field = card.getByText(label, { exact: true }).locator("..");
       const combobox = field.getByRole("combobox");
 
-      if ((await combobox.textContent())?.trim() === value) {
-        return;
-      }
-
       await combobox.click();
       await selectOpenMenuOption(value);
     };
