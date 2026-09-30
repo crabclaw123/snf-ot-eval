@@ -62,10 +62,6 @@ test.describe("SNF OT Evaluation home screen", () => {
     const selectFinding = async (index: number, option: string) => {
       const combobox = page.getByRole("combobox").nth(index);
 
-      if ((await combobox.textContent())?.trim() === option) {
-        return;
-      }
-
       await combobox.click();
       await selectOpenMenuOption(option);
       await expect(combobox).toContainText(option);
