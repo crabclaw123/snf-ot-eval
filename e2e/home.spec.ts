@@ -28,15 +28,47 @@ test.describe("SNF OT Evaluation home screen", () => {
   });
 
   test("fills a complete sample evaluation across all sections and saves the draft", async ({ page }) => {
+    const selectOpenMenuOption = async (option: string) => {
+      const options = page.getByRole("listbox").getByRole("option");
+      const labels = await options.allTextContents();
+      const targetIndex = labels.findIndex((label) => label.trim() === option);
+
+      if (targetIndex === -1) {
+        throw new Error(`Option not found: ${option}`);
+      }
+
+      await page.keyboard.press("Home");
+
+      for (let i = 0; i < targetIndex; i++) {
+        await page.keyboard.press("ArrowDown");
+      }
+
+      await page.keyboard.press("Enter");
+    };
+
     const selectOption = async (label: string, option: string) => {
       const field = page.getByText(label, { exact: true }).locator("..");
-      await field.getByRole("combobox").click();
-      await page.getByRole("option", { name: option, exact: true }).click();
+      const combobox = field.getByRole("combobox");
+
+      if ((await combobox.textContent())?.trim() === option) {
+        return;
+      }
+
+      await combobox.click();
+      await selectOpenMenuOption(option);
+      await expect(combobox).toContainText(option);
     };
 
     const selectFinding = async (index: number, option: string) => {
-      await page.getByRole("combobox").nth(index).click();
-      await page.getByRole("option", { name: option, exact: true }).click();
+      const combobox = page.getByRole("combobox").nth(index);
+
+      if ((await combobox.textContent())?.trim() === option) {
+        return;
+      }
+
+      await combobox.click();
+      await selectOpenMenuOption(option);
+      await expect(combobox).toContainText(option);
     };
 
     await page.goto("/");
@@ -106,9 +138,7 @@ test.describe("SNF OT Evaluation home screen", () => {
       }
 
       await combobox.click();
-      const option = page.getByRole("listbox").getByRole("option", { name: value, exact: true });
-      await expect(option).toBeVisible();
-      await option.click({ timeout: 5000 });
+      await selectOpenMenuOption(value);
       await expect(combobox).toContainText(value);
     };
 
