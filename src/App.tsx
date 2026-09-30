@@ -193,8 +193,16 @@ function exportEvaluationPdf(evaluation: Evaluation) {
   addField("Current equipment / DME / assistive devices", f.environmentPLOF.equipment);
 
   addSection("4. Medical / Clinical Status");
-  addField("Pain location", f.medicalStatus.painLocation);
-  addField("Pain rating", f.medicalStatus.painRating);
+  if (f.medicalStatus.painRating !== "") {
+    addText("Pain rating", 9, true);
+    addText(f.medicalStatus.painRating + "/10", 10, false, 8);
+  }
+  addField("Pain interferes with occupational participation", f.medicalStatus.painInterferesOccupationalParticipation);
+  if (f.medicalStatus.painInterferesOccupationalParticipation === "Yes") {
+    addField("Pain timing", f.medicalStatus.painTiming);
+    addField("Pain location", f.medicalStatus.painLocation);
+    addField("Pain description", f.medicalStatus.painDescription);
+  }
   addField("Vitals", f.medicalStatus.vitals);
   addField("Relevant medications", f.medicalStatus.medicationsRelevant);
   addField("Lines / tubes / drains", f.medicalStatus.linesTubesDrains);
@@ -516,6 +524,54 @@ export default function App() {
         <Divider /><Typography variant="h6">Medical / Clinical Considerations</Typography>
         <FormControl fullWidth disabled={!!disabled}><InputLabel>Weight-bearing status</InputLabel><Select value={f.medicalStatus.weightBearing} label="Weight-bearing status" onChange={e => updateSection("medicalStatus", "weightBearing", e.target.value)}>{["WBAT","NWB","TTWB","PWB","No restriction","Unknown / verify order"].map(x => <MenuItem key={x} value={x}>{x}</MenuItem>)}</Select></FormControl>
         <Field label="Precautions / relevant medical considerations" value={f.medicalStatus.notes} disabled={!!disabled} onChange={v => updateSection("medicalStatus","notes",v)} multiline />
+        <Divider /><Typography variant="h6">Pain</Typography>
+        <Field label="Pain rating (0–10)" value={f.medicalStatus.painRating} disabled={!!disabled} onChange={v => {
+          if (v === "" || (/^\d+$/.test(v) && Number(v) >= 0 && Number(v) <= 10)) {
+            updateSection("medicalStatus", "painRating", v);
+          }
+        }} placeholder="0–10" />
+        <FormControl fullWidth disabled={!!disabled}>
+          <InputLabel>Does pain interfere with occupational participation?</InputLabel>
+          <Select value={f.medicalStatus.painInterferesOccupationalParticipation} label="Does pain interfere with occupational participation?" onChange={e => {
+            const value = e.target.value;
+            if (!evaluation || evaluation.status === "submitted") return;
+            const next = {
+              ...evaluation,
+              updatedAt: new Date().toISOString(),
+              formData: {
+                ...evaluation.formData,
+                medicalStatus: {
+                  ...evaluation.formData.medicalStatus,
+                  painInterferesOccupationalParticipation: value,
+                  ...(value === "No"
+                    ? { painTiming: "", painLocation: "", painDescription: "" }
+                    : {}),
+                },
+              },
+            } as Evaluation;
+            setEvaluation(next);
+            localStorage.setItem("snf-ot-eval:" + next.resumeCode, JSON.stringify(next));
+          }}>
+            <MenuItem value=""><em>Select...</em></MenuItem>
+            <MenuItem value="Yes">Yes</MenuItem>
+            <MenuItem value="No">No</MenuItem>
+          </Select>
+        </FormControl>
+        {f.medicalStatus.painInterferesOccupationalParticipation === "Yes" && (
+          <Stack spacing={2}>
+            <FormControl fullWidth disabled={!!disabled}>
+              <InputLabel>Pain timing</InputLabel>
+              <Select value={f.medicalStatus.painTiming} label="Pain timing" onChange={e => updateSection("medicalStatus", "painTiming", e.target.value)}>
+                <MenuItem value=""><em>Select...</em></MenuItem>
+                <MenuItem value="At rest">At rest</MenuItem>
+                <MenuItem value="With activity">With activity</MenuItem>
+                <MenuItem value="At rest and with activity">At rest and with activity</MenuItem>
+              </Select>
+            </FormControl>
+            <Field label="Pain location" value={f.medicalStatus.painLocation} disabled={!!disabled} onChange={v => updateSection("medicalStatus","painLocation",v)} />
+            <Field label="Pain description" value={f.medicalStatus.painDescription} disabled={!!disabled} onChange={v => updateSection("medicalStatus","painDescription",v)} multiline minRows={3} />
+          </Stack>
+        )}
       </Stack></PageCard>;
       case "profile": return <PageCard title="Occupational Profile" help="Write a concise occupational profile rather than completing separate prompts for roles, routines, interests, and concerns."><Field label="Occupational Profile / Patient Summary" value={f.occupationalProfile.summary} disabled={!!disabled} onChange={v => updateSection("occupationalProfile","summary",v)} multiline minRows={14} placeholder="Describe the patient's roles, routines, interests, meaningful occupations, occupational concerns, relevant history, and patient priorities." /></PageCard>;
       case "environment": return <PageCard title="Environment" help="Describe the physical and social environment that may support or limit occupational performance. Keep the main documentation here as one concise environmental narrative.">
