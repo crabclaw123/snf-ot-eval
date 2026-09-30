@@ -42,10 +42,6 @@ test.describe("SNF OT Evaluation home screen", () => {
       const field = page.getByText(label, { exact: true }).locator("..");
       const combobox = field.getByRole("combobox");
 
-      if ((await combobox.textContent())?.trim() === option) {
-        return;
-      }
-
       await combobox.click();
       await selectOpenMenuOption(option);
     };
