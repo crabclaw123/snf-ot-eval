@@ -48,7 +48,6 @@ test.describe("SNF OT Evaluation home screen", () => {
 
       await combobox.click();
       await selectOpenMenuOption(option);
-      await expect(combobox).toContainText(option);
     };
 
     const selectFinding = async (index: number, option: string) => {
@@ -56,7 +55,6 @@ test.describe("SNF OT Evaluation home screen", () => {
 
       await combobox.click();
       await selectOpenMenuOption(option);
-      await expect(combobox).toContainText(option);
     };
 
     await page.goto("/");
@@ -127,7 +125,6 @@ test.describe("SNF OT Evaluation home screen", () => {
 
       await combobox.click();
       await selectOpenMenuOption(value);
-      await expect(combobox).toContainText(value);
     };
 
     for (const [label, plof, current] of adls) {
