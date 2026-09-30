@@ -158,7 +158,7 @@ test.describe("SNF OT Evaluation home screen", () => {
     );
     await page.getByLabel("Activity tolerance").fill("Fair; tolerates approximately 15 minutes of standing activity.");
     await page.getByLabel("Cueing needed").fill("Intermittent verbal cues for walker management and hip precautions.");
-    await page.getByLabel("Safety awareness").fill("Fair; requires reminders to maintain hip precautions during functional tasks.");
+    await page.getByRole("textbox", { name: "Safety awareness" }).fill("Fair; requires reminders to maintain hip precautions during functional tasks.");
     await page.getByRole("button", { name: "5. ROM" }).click();
 
     // 5. ROM — document representative right and left findings.
