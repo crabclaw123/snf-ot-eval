@@ -35,7 +35,7 @@ test.describe("SNF OT Evaluation home screen", () => {
       });
 
       await expect(optionLocator).toBeVisible();
-      await optionLocator.click();
+      await optionLocator.click({ force: true });
     };
 
     const selectOption = async (label: string, option: string) => {
