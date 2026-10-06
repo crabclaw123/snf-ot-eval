@@ -48,7 +48,7 @@ const GOAL_WIZARD_STEPS = [
   { key: "performanceProblem", title: "3. Functional performance problem", help: "Choose the occupational reason the goal is needed." },
   { key: "condition", title: "4. Condition / context", help: "Choose the conditions under which the patient will perform." },
   { key: "measurableCriterion", title: "5. Measurable criterion", help: "Choose how successful performance will be measured." },
-  { key: "timeframe", title: "6. Timeframe", help: "Choose when the patient is expected to meet the goal." },
+  { key: "timeframe", title: "6. Timeframe & target date", help: "Choose the expected timeframe and set the calendar date the goal should be met by." },
 ] as const;
 
 const GOAL_PHRASES: Record<string, string[]> = {
@@ -85,7 +85,15 @@ const GOAL_PHRASES: Record<string, string[]> = {
 };
 
 function blankGoal(): OTGoal {
-  return { id: "", type: "Short-term", occupation: "", plof: "", current: "", target: "", performanceProblem: "", condition: "", measurableCriterion: "", timeframe: "", goalStatement: "" };
+  return { id: "", type: "Short-term", occupation: "", plof: "", current: "", target: "", performanceProblem: "", condition: "", measurableCriterion: "", timeframe: "", targetDate: "", goalStatement: "" };
+}
+function calculateTargetDate(baseDate: string, timeframe: string): string {
+  const weeks = Number(timeframe.match(/^(\d+) week/)?.[1] || 0);
+  if (!baseDate || !weeks) return "";
+  const date = new Date(`${baseDate}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return "";
+  date.setDate(date.getDate() + weeks * 7);
+  return date.toISOString().slice(0,10);
 }
 function buildGoalStatement(goal: OTGoal): string {
   if (!goal.occupation || !goal.target) return "";
@@ -93,15 +101,16 @@ function buildGoalStatement(goal: OTGoal): string {
   const condition = goal.condition.trim() ? ` while ${goal.condition.trim()}` : "";
   const measure = goal.measurableCriterion.trim() ? ` as demonstrated by ${goal.measurableCriterion.trim()}` : "";
   const timeframe = goal.timeframe ? ` within ${goal.timeframe}` : "";
-  return `Patient will improve ${goal.occupation.toLowerCase()} from ${goal.current || "current documented level"} to ${goal.target.toLowerCase()}${condition} in order to ${problem}${measure}${timeframe}.`;
+  const targetDate = goal.targetDate ? ` (target date: ${goal.targetDate})` : "";
+  return `Patient will improve ${goal.occupation.toLowerCase()} from ${goal.current || "current documented level"} to ${goal.target.toLowerCase()}${condition} in order to ${problem}${measure}${timeframe}${targetDate}.`;
 }
 const ADLS: [string, string][] = [
   ["eating", "Eating"], ["grooming", "Grooming"], ["bathing", "Bathing"], ["upperBodyDressing", "Upper-body dressing"],
   ["lowerBodyDressing", "Lower-body dressing"], ["toileting", "Toileting"], ["toiletTransfer", "Toilet transfer"],
   ["showerTransfer", "Shower transfer"], ["bedMobility", "Bed mobility"], ["transfers", "Transfers"], ["functionalMobility", "Functional mobility / ambulation"],
 ];
-function Field({ label, value, onChange, disabled, multiline = false, minRows = 3, placeholder }: { label: string; value: string; onChange: (v: string) => void; disabled: boolean; multiline?: boolean; minRows?: number; placeholder?: string }) {
-  return <TextField fullWidth label={label} value={value} onChange={e => onChange(e.target.value)} disabled={disabled} multiline={multiline} minRows={multiline ? minRows : undefined} placeholder={placeholder} />;
+function Field({ label, value, onChange, disabled, multiline = false, minRows = 3, placeholder, type }: { label: string; value: string; onChange: (v: string) => void; disabled: boolean; multiline?: boolean; minRows?: number; placeholder?: string; type?: string }) {
+  return <TextField fullWidth label={label} type={type} value={value} onChange={e => onChange(e.target.value)} disabled={disabled} multiline={multiline} minRows={multiline ? minRows : undefined} placeholder={placeholder} InputLabelProps={type === "date" ? { shrink: true } : undefined} />;
 }
 function SelectField({ label, value, options, onChange, disabled }: { label: string; value: string; options: string[]; onChange: (v: string) => void; disabled: boolean }) {
   return <FormControl fullWidth disabled={disabled}><InputLabel shrink>{label}</InputLabel><Select displayEmpty value={value} label={label} renderValue={selected => selected || <span style={{ color: "#777" }}>Select...</span>} onChange={e => onChange(e.target.value)}><MenuItem value=""><em>Not assessed</em></MenuItem>{options.map(o => <MenuItem key={o} value={o}>{o}</MenuItem>)}</Select></FormControl>;
@@ -272,6 +281,7 @@ function exportEvaluationPdf(evaluation: Evaluation) {
       addField("Condition", goal.condition);
       addField("Measurement", goal.measurableCriterion);
       addField("Timeframe", goal.timeframe);
+      addField("Target date", goal.targetDate || "Not documented");
     });
   } else {
     addText("No guided goals have been added.");
@@ -614,17 +624,24 @@ export default function App() {
           GOAL_PHRASES[wizardStep.key].map(x => ({ value: x, label: x }));
 
         function chooseWizardValue(value: string) {
-          setGoalDraft(g => ({ ...g, [wizardStep.key]: value }));
+          setGoalDraft(g => {
+            const updates: Partial<OTGoal> = { [wizardStep.key]: value };
+            if (wizardStep.key === "timeframe" && !g.targetDate) {
+              updates.targetDate = calculateTargetDate(f.patientInfo.evaluationDate, value);
+            }
+            return { ...g, ...updates };
+          });
         }
 
         function saveGoal() {
           const finalGoal: OTGoal = {
             ...draftWithBaseline,
             id: goalDraft.id || crypto.randomUUID(),
+            targetDate: goalDraft.targetDate || "",
             goalStatement: goalDraft.goalStatement.trim() || preview,
           };
-          if (!finalGoal.occupation.trim() || !finalGoal.target.trim() || !finalGoal.timeframe.trim() || !finalGoal.performanceProblem.trim()) {
-            setMessage("Complete the occupation, target, functional problem, and timeframe before saving the goal.");
+          if (!finalGoal.occupation.trim() || !finalGoal.target.trim() || !finalGoal.timeframe.trim() || !finalGoal.targetDate?.trim() || !finalGoal.performanceProblem.trim()) {
+            setMessage("Complete the occupation, target, functional problem, timeframe, and target date before saving the goal.");
             return;
           }
           const nextGoals = goalDraft.id
@@ -638,12 +655,11 @@ export default function App() {
         }
 
         function editGoal(goal: OTGoal) {
-          // Generated goals should regenerate when their component fields are edited.
-          // A genuinely custom goal statement should remain intact until the student changes it.
           const generatedStatement = buildGoalStatement(goal);
           openGoalBuilder(
             {
               ...goal,
+              targetDate: goal.targetDate || "",
               goalStatement: goal.goalStatement.trim() === generatedStatement.trim() ? "" : goal.goalStatement,
             },
             "",
@@ -658,7 +674,7 @@ export default function App() {
         const isEditing = Boolean(goalDraft.id);
 
         return <PageCard title="Goals" help="Build measurable, occupation-based goals from the patient's documented baseline. Presets are suggestions—you can customize individual steps or write the complete goal yourself.">
-          <Alert severity="info">Use the guided steps to build a goal, mix presets with your own wording, or write the complete goal yourself. If performance documentation changes later, edit the goal and update its PLOF/current level before saving.</Alert>
+          <Alert severity="info">Use the guided steps to build a goal, mix presets with your own wording, or write the complete goal yourself. Each new goal includes a target date. Older saved goals without a target date remain valid and can be updated when edited.</Alert>
           <Button variant="contained" size="large" onClick={()=>openGoalBuilder()} disabled={!!disabled}>Open Guided Goal Builder</Button>
 
           <Dialog open={goalWizardOpen} onClose={()=>{setGoalWizardOpen(false);setGoalDraft(blankGoal());setGoalWizardStep(0);}} fullWidth maxWidth="md">
@@ -693,13 +709,13 @@ export default function App() {
 
                 {(wizardStep.key === "performanceProblem" || wizardStep.key === "condition" || wizardStep.key === "measurableCriterion") && <Field label="Or enter your own phrase" value={String(goalDraft[wizardStep.key])} disabled={!!disabled} onChange={v=>setGoalDraft(g=>({...g,[wizardStep.key]:v}))} multiline minRows={2} />}
                 {wizardStep.key === "target" && <Field label="Or enter your own target performance level" value={goalDraft.target} disabled={!!disabled} onChange={v=>setGoalDraft(g=>({...g,target:v}))} placeholder="Example: setup assistance, independent with adaptive equipment, or completes task safely" />}
-                {wizardStep.key === "timeframe" && <Field label="Or enter your own timeframe" value={goalDraft.timeframe} disabled={!!disabled} onChange={v=>setGoalDraft(g=>({...g,timeframe:v}))} placeholder="Example: within 10 treatment sessions" />}
+                {wizardStep.key === "timeframe" && <Stack spacing={2}><Field label="Or enter your own timeframe" value={goalDraft.timeframe} disabled={!!disabled} onChange={v=>setGoalDraft(g=>({...g,timeframe:v}))} placeholder="Example: within 10 treatment sessions" /><Field type="date" label="Target date" value={goalDraft.targetDate || ""} disabled={!!disabled} onChange={v=>setGoalDraft(g=>({...g,targetDate:v}))} /></Stack>}
 
                 {wizardStep.key === "occupation" && goalDraft.occupation && <Typography color="text.secondary">Selected occupation: {ADLS.find(([key])=>key===goalDraft.occupation)?.[1] || goalDraft.occupation}</Typography>}
                 {wizardStep.key === "target" && goalDraft.target && <Typography color="text.secondary">Target: {goalDraft.target}</Typography>}
                 {wizardStep.key === "condition" && goalDraft.condition && <Typography color="text.secondary">Condition: {goalDraft.condition}</Typography>}
                 {wizardStep.key === "measurableCriterion" && goalDraft.measurableCriterion && <Typography color="text.secondary">Measurement: {goalDraft.measurableCriterion}</Typography>}
-                {wizardStep.key === "timeframe" && goalDraft.timeframe && <Typography color="text.secondary">Timeframe: {goalDraft.timeframe}</Typography>}
+                {wizardStep.key === "timeframe" && goalDraft.timeframe && <Typography color="text.secondary">Timeframe: {goalDraft.timeframe}{goalDraft.targetDate ? ` · Target date: ${goalDraft.targetDate}` : ""}</Typography>}
 
                 {goalWizardStep === GOAL_WIZARD_STEPS.length - 1 && (
                   <Stack spacing={2}>
@@ -720,13 +736,13 @@ export default function App() {
             <DialogActions>
               <Button onClick={()=>setGoalWizardStep(Math.max(0,goalWizardStep-1))} disabled={goalWizardStep===0}>Back</Button>
               {goalWizardStep < GOAL_WIZARD_STEPS.length - 1 ? <Button variant="contained" onClick={()=>setGoalWizardStep(goalWizardStep+1)} disabled={!goalDraft[wizardStep.key]}>Next</Button> :
-                <Button variant="contained" onClick={saveGoal} disabled={!goalDraft.occupation || !goalDraft.target || !goalDraft.performanceProblem.trim() || !goalDraft.timeframe}> {isEditing ? "Save Changes" : "Add Goal"} </Button>}
+                <Button variant="contained" onClick={saveGoal} disabled={!goalDraft.occupation || !goalDraft.target || !goalDraft.performanceProblem.trim() || !goalDraft.timeframe || !goalDraft.targetDate}> {isEditing ? "Save Changes" : "Add Goal"} </Button>}
             </DialogActions>
           </Dialog>
 
           <Divider />
           <Typography variant="h6">Goals in this evaluation</Typography>
-          {goals.length === 0 ? <Typography color="text.secondary">No goals added yet.</Typography> : <Stack spacing={1.5}>{goals.map((goal,index)=><Card variant="outlined" key={goal.id || index}><CardContent><Stack spacing={1}><Stack direction="row" justifyContent="space-between" alignItems="center"><Typography fontWeight={700}>{goal.type} Goal {index+1}</Typography><Stack direction="row" spacing={1}><Button size="small" onClick={()=>editGoal(goal)} disabled={!!disabled}>Edit</Button><Button color="error" size="small" onClick={()=>removeGoal(goal.id)} disabled={!!disabled}>Remove</Button></Stack></Stack><Typography>{goal.goalStatement}</Typography><Typography variant="body2" color="text.secondary">{ADLS.find(([key])=>key===goal.occupation)?.[1] || goal.occupation} · PLOF: {goal.plof || "Not documented"} · Current: {goal.current || "Not documented"} · Target: {goal.target || "Not documented"} · {goal.timeframe || "No timeframe"}</Typography></Stack></CardContent></Card>)}</Stack>}
+          {goals.length === 0 ? <Typography color="text.secondary">No goals added yet.</Typography> : <Stack spacing={1.5}>{goals.map((goal,index)=><Card variant="outlined" key={goal.id || index}><CardContent><Stack spacing={1}><Stack direction="row" justifyContent="space-between" alignItems="center"><Typography fontWeight={700}>{goal.type} Goal {index+1}</Typography><Stack direction="row" spacing={1}><Button size="small" onClick={()=>editGoal(goal)} disabled={!!disabled}>Edit</Button><Button color="error" size="small" onClick={()=>removeGoal(goal.id)} disabled={!!disabled}>Remove</Button></Stack></Stack><Typography>{goal.goalStatement}</Typography><Typography variant="body2" color="text.secondary">{ADLS.find(([key])=>key===goal.occupation)?.[1] || goal.occupation} · PLOF: {goal.plof || "Not documented"} · Current: {goal.current || "Not documented"} · Target: {goal.target || "Not documented"} · {goal.timeframe || "No timeframe"} · Target date: {goal.targetDate || "Not documented"}</Typography></Stack></CardContent></Card>)}</Stack>}
         </PageCard>;
       }
       case "plan": return <PageCard title="Plan of Care"><Stack spacing={2}><Stack direction={{xs:"column",sm:"row"}} spacing={1.5}><Field label="Frequency" value={f.goalsPlanOfCare.frequency} disabled={!!disabled} onChange={v=>updateSection("goalsPlanOfCare","frequency",v)} /><Field label="Duration" value={f.goalsPlanOfCare.duration} disabled={!!disabled} onChange={v=>updateSection("goalsPlanOfCare","duration",v)} /></Stack><Typography fontWeight={600}>Planned skilled interventions</Typography>{INTERVENTIONS.map(i=><FormControlLabel key={i} control={<Checkbox checked={f.goalsPlanOfCare.treatmentInterventions.includes(i)} disabled={!!disabled} onChange={e=>updateSection("goalsPlanOfCare","treatmentInterventions",e.target.checked?[...f.goalsPlanOfCare.treatmentInterventions,i]:f.goalsPlanOfCare.treatmentInterventions.filter(x=>x!==i))}/>} label={i}/>)}<Field label="Patient / caregiver education" value={f.goalsPlanOfCare.patientCaregiverEducation} disabled={!!disabled} onChange={v=>updateSection("goalsPlanOfCare","patientCaregiverEducation",v)} multiline minRows={6}/><Field label="Discharge planning / anticipated disposition" value={f.goalsPlanOfCare.dischargePlan} disabled={!!disabled} onChange={v=>updateSection("goalsPlanOfCare","dischargePlan",v)} multiline minRows={6}/></Stack></PageCard>;
