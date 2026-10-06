@@ -1,6 +1,7 @@
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Alert, Box, Button, CssBaseline, Snackbar, ThemeProvider, createTheme } from "@mui/material";
+import type { AlertColor } from "@mui/material";
 import App from "./App";
 import { generateDemoEvaluation } from "./demoGenerator";
 import { saveEvaluation } from "./storage";
@@ -30,6 +31,7 @@ function DemoPatientLauncher() {
   const [busy, setBusy] = useState(false);
   const [visible, setVisible] = useState(false);
   const [message, setMessage] = useState("");
+  const [severity, setSeverity] = useState<AlertColor>("success");
 
   useEffect(() => {
     const updateVisibility = () => {
@@ -54,6 +56,7 @@ function DemoPatientLauncher() {
       window.location.reload();
     } catch (error) {
       console.error(error);
+      setSeverity("error");
       setMessage("Could not generate the demo patient.");
       setBusy(false);
     }
@@ -71,22 +74,29 @@ function DemoPatientLauncher() {
       const input = inputId ? document.getElementById(inputId) as HTMLInputElement | null : null;
       const button = Array.from(document.querySelectorAll("button")).find(button => button.textContent?.trim() === "Resume Evaluation") as HTMLButtonElement | undefined;
       if (input && button) {
+        const scenario = sessionStorage.getItem("snf-demo-scenario") || "Random SNF case";
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
         setter?.call(input, code);
         input.dispatchEvent(new Event("input", { bubbles: true }));
         input.dispatchEvent(new Event("change", { bubbles: true }));
         sessionStorage.removeItem("snf-demo-auto-open");
+        sessionStorage.removeItem("snf-demo-scenario");
         window.clearInterval(timer);
+        setSeverity("success");
+        setMessage(`Demo generated: ${scenario} · ${code}`);
         window.setTimeout(() => button.click(), 100);
       } else if (attempts > 30) {
         sessionStorage.removeItem("snf-demo-auto-open");
+        sessionStorage.removeItem("snf-demo-scenario");
         window.clearInterval(timer);
       }
     }, 100);
     return () => window.clearInterval(timer);
   }, []);
 
-  if (!visible) return message ? <Snackbar open autoHideDuration={4000} onClose={() => setMessage("")}><Alert severity="error">{message}</Alert></Snackbar> : null;
+  const notice = message ? <Snackbar open autoHideDuration={6000} onClose={() => setMessage("")} anchorOrigin={{ vertical: "bottom", horizontal: "center" }}><Alert severity={severity} onClose={() => setMessage("")}>{message}</Alert></Snackbar> : null;
+
+  if (!visible) return notice;
 
   return <>
     <Box sx={{ position: "fixed", right: 20, bottom: 20, zIndex: 1300 }}>
@@ -94,7 +104,7 @@ function DemoPatientLauncher() {
         {busy ? "Generating Demo..." : "Generate Demo Patient"}
       </Button>
     </Box>
-    {message && <Snackbar open autoHideDuration={4000} onClose={() => setMessage("")}><Alert severity="error">{message}</Alert></Snackbar>}
+    {notice}
   </>;
 }
 
