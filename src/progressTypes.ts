@@ -28,6 +28,7 @@ export interface ProgressNote {
   pain: string;
   fallsHospitalizations: string;
   precautionsChanges: string;
+  periodConfirmed: Record<string, boolean>;
   currentADL: Record<string, AssistanceLevel>;
   functionalADLConfirmed: Record<string, boolean>;
   functionalNotes: string;
@@ -72,6 +73,27 @@ function cloneStrength(strength: StrengthAssessment): StrengthAssessment {
   };
 }
 
+function evaluationMedicalSummary(evaluation: Evaluation): string {
+  const f = evaluation.formData;
+  return [
+    f.patientInfo.medicalDiagnosis ? `Diagnosis: ${f.patientInfo.medicalDiagnosis}` : "",
+    f.patientInfo.reasonForReferral ? `Referral context: ${f.patientInfo.reasonForReferral}` : "",
+    f.medicalStatus.medicalStability ? `Medical stability: ${f.medicalStatus.medicalStability}` : "",
+    f.medicalStatus.medicationsRelevant ? `Relevant medications: ${f.medicalStatus.medicationsRelevant}` : "",
+    f.medicalStatus.linesTubesDrains ? `Lines/tubes/drains: ${f.medicalStatus.linesTubesDrains}` : "",
+    f.medicalStatus.skinWounds ? `Skin/wounds: ${f.medicalStatus.skinWounds}` : "",
+    f.medicalStatus.notes ? `Clinical considerations: ${f.medicalStatus.notes}` : "",
+  ].filter(Boolean).join("\n") || "No additional medical status details documented in the initial evaluation.";
+}
+
+function evaluationPrecautionSummary(evaluation: Evaluation): string {
+  const f = evaluation.formData;
+  return [
+    f.medicalStatus.weightBearing ? `Weight-bearing: ${f.medicalStatus.weightBearing}` : "",
+    f.medicalStatus.precautions.length ? `Precautions: ${f.medicalStatus.precautions.join(", ")}` : "",
+  ].filter(Boolean).join("\n") || "No precautions or weight-bearing restrictions documented in the initial evaluation.";
+}
+
 export function createProgressNote(evaluation: Evaluation, resumeCode: string): ProgressNote {
   const now = new Date().toISOString();
   const romKeys = [
@@ -97,13 +119,19 @@ export function createProgressNote(evaluation: Evaluation, resumeCode: string): 
     "standardizedAssessments",
     "assessmentFindings",
   ];
+  const periodKeys = ["reportingPeriodStart","reportingPeriodEnd","visitsSinceEvaluation","medicalUpdates","fallsHospitalizations","precautionsChanges"];
 
   return {
     id: crypto.randomUUID(), resumeCode, sourceEvaluationCode: evaluation.resumeCode,
     studentName: evaluation.studentName, status: "draft", createdAt: now, updatedAt: now,
     reportingPeriodStart: evaluation.formData.patientInfo.evaluationDate || "",
-    reportingPeriodEnd: new Date().toISOString().slice(0,10), visitsSinceEvaluation: "",
-    medicalUpdates: "", pain: "", fallsHospitalizations: "", precautionsChanges: "",
+    reportingPeriodEnd: new Date().toISOString().slice(0,10),
+    visitsSinceEvaluation: "Not applicable at initial evaluation - enter current visit count.",
+    medicalUpdates: evaluationMedicalSummary(evaluation),
+    pain: "",
+    fallsHospitalizations: "Not documented in initial evaluation - update for the current reporting period.",
+    precautionsChanges: evaluationPrecautionSummary(evaluation),
+    periodConfirmed: Object.fromEntries(periodKeys.map(key => [key, false])),
     currentADL: { ...evaluation.formData.adlStatus.current },
     functionalADLConfirmed: Object.fromEntries(Object.keys(evaluation.formData.adlStatus.current).map(key => [key, false])),
     functionalNotes: "",
