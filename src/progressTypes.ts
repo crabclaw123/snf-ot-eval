@@ -1,7 +1,7 @@
 import type { AssistanceLevel, Evaluation, OTGoal } from "./types";
 
-export type GoalProgressStatus = "" | "Met" | "Progressing" | "Limited Progress" | "Not Met";
-export type GoalPlan = "Continue" | "Modify" | "Discontinue";
+export type GoalProgressStatus = "" | "Met" | "Partially Met" | "Unmet";
+export type GoalPlan = "Continue" | "Upgrade" | "Discontinue";
 
 export interface ProgressGoal {
   goalId: string;
@@ -29,6 +29,7 @@ export interface ProgressNote {
   fallsHospitalizations: string;
   precautionsChanges: string;
   currentADL: Record<string, AssistanceLevel>;
+  functionalADLConfirmed: Record<string, boolean>;
   functionalNotes: string;
   romUpdate: string;
   strengthUpdate: string;
@@ -57,7 +58,8 @@ export function createProgressNote(evaluation: Evaluation, resumeCode: string): 
     reportingPeriodStart: evaluation.formData.patientInfo.evaluationDate || "",
     reportingPeriodEnd: new Date().toISOString().slice(0,10), visitsSinceEvaluation: "",
     medicalUpdates: "", pain: "", fallsHospitalizations: "", precautionsChanges: "",
-    currentADL: { ...evaluation.formData.adlStatus.current }, functionalNotes: "",
+    currentADL: { ...evaluation.formData.adlStatus.current },
+    functionalADLConfirmed: Object.fromEntries(Object.keys(evaluation.formData.adlStatus.current).map(key => [key, false])), functionalNotes: "",
     romUpdate: "", strengthUpdate: "", balanceUpdate: "", enduranceUpdate: "",
     cognitionSafetyUpdate: "", otherPerformanceUpdate: "", skilledInterventions: [],
     responseToIntervention: "", barriers: "", facilitators: "",
