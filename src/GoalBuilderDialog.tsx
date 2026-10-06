@@ -29,7 +29,6 @@ import {
   formatGoalDate,
   formatSourceFinding,
   goalBuilderCanAdvance,
-  isFunctionalGoal,
   occupationLabel,
   recommendedTarget,
   smartConditionOptions,
@@ -162,8 +161,14 @@ export default function GoalBuilderDialog({
   const finalGoalText = draft.goalStatement.trim() || generatedGoal;
   const sourceLabel = formatSourceFinding(effectiveGoal);
   const suggestedTarget = recommendedTarget(effectiveGoal);
-  const targetOptions = useMemo(() => smartTargetOptions(effectiveGoal), [effectiveGoal.sourceType, effectiveGoal.sourceBaseline, effectiveGoal.current, effectiveGoal.occupation]);
-  const purposeOptions = useMemo(() => smartPurposeOptions(effectiveGoal), [effectiveGoal.sourceType, effectiveGoal.sourceSide, effectiveGoal.occupation]);
+  const targetOptions = useMemo(
+    () => smartTargetOptions(effectiveGoal),
+    [effectiveGoal.sourceType, effectiveGoal.sourceBaseline, effectiveGoal.current, effectiveGoal.occupation],
+  );
+  const purposeOptions = useMemo(
+    () => smartPurposeOptions(effectiveGoal),
+    [effectiveGoal.sourceType, effectiveGoal.sourceSide, effectiveGoal.occupation],
+  );
   const conditionOptions = useMemo(() => smartConditionOptions(effectiveGoal), [effectiveGoal.sourceType]);
   const criterionOptions = useMemo(() => smartCriterionOptions(effectiveGoal), [effectiveGoal.sourceType]);
 
@@ -174,13 +179,13 @@ export default function GoalBuilderDialog({
   const chooseOccupation = (occupation: string) => {
     const nextPlof = adlPlof[occupation] ?? "";
     const nextCurrent = adlCurrent[occupation] ?? "";
-    update({ occupation, plof: nextPlof, current: nextCurrent, goalStatement: "" });
+    update({ occupation, plof: nextPlof, current: nextCurrent });
   };
 
   const chooseTimeframe = (timeframe: string) => {
     const baseDate = evaluationDate || new Date().toISOString().slice(0, 10);
     const targetDate = calculateGoalTargetDate(baseDate, timeframe);
-    update({ timeframe, ...(targetDate ? { targetDate } : {}), goalStatement: "" });
+    update({ timeframe, targetDate });
   };
 
   const handleSave = () => {
@@ -194,6 +199,7 @@ export default function GoalBuilderDialog({
 
   const canAdvance = goalBuilderCanAdvance(wizardStep.key, effectiveGoal);
   const isLastStep = step === GOAL_BUILDER_STEPS.length - 1;
+  const hasCustomizedWording = !!draft.goalStatement.trim();
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
@@ -212,7 +218,7 @@ export default function GoalBuilderDialog({
                   key={type}
                   size="small"
                   variant={effectiveGoal.type === type ? "contained" : "outlined"}
-                  onClick={() => update({ type, goalStatement: "" })}
+                  onClick={() => update({ type })}
                   disabled={disabled}
                   sx={{ textTransform: "none", whiteSpace: "nowrap" }}
                 >
@@ -255,7 +261,7 @@ export default function GoalBuilderDialog({
                 fullWidth
                 label="Or enter your own occupation / activity"
                 value={ADLS.some(([key]) => key === draft.occupation) ? "" : draft.occupation}
-                onChange={event => update({ occupation: event.target.value, plof: "", current: "", goalStatement: "" })}
+                onChange={event => update({ occupation: event.target.value, plof: "", current: "" })}
                 disabled={disabled}
                 placeholder="Example: meal preparation, medication management, leisure participation"
               />
@@ -269,8 +275,8 @@ export default function GoalBuilderDialog({
                         These values are carried from the Performance section when available. They remain editable for a custom occupation.
                       </Typography>
                       <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
-                        <BaselineSelect label="Prior level of function" value={effectiveGoal.plof} disabled={disabled} onChange={value => update({ plof: value, goalStatement: "" })} />
-                        <BaselineSelect label="Current level of function" value={effectiveGoal.current} disabled={disabled} onChange={value => update({ current: value, goalStatement: "" })} />
+                        <BaselineSelect label="Prior level of function" value={effectiveGoal.plof} disabled={disabled} onChange={value => update({ plof: value })} />
+                        <BaselineSelect label="Current level of function" value={effectiveGoal.current} disabled={disabled} onChange={value => update({ current: value })} />
                       </Stack>
                     </Stack>
                   </CardContent>
@@ -283,13 +289,13 @@ export default function GoalBuilderDialog({
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 1.25 }}>
                     What occupational outcome is this goal intended to improve?
                   </Typography>
-                  <ChoiceButtons options={purposeOptions} value={effectiveGoal.performanceProblem} onChange={value => update({ performanceProblem: value, goalStatement: "" })} />
+                  <ChoiceButtons options={purposeOptions} value={effectiveGoal.performanceProblem} onChange={value => update({ performanceProblem: value })} />
                   <TextField
                     fullWidth
                     sx={{ mt: 1.5 }}
                     label="Or write your own functional purpose"
                     value={effectiveGoal.performanceProblem}
-                    onChange={event => update({ performanceProblem: event.target.value, goalStatement: "" })}
+                    onChange={event => update({ performanceProblem: event.target.value })}
                     disabled={disabled}
                     multiline
                     minRows={2}
@@ -323,13 +329,13 @@ export default function GoalBuilderDialog({
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 1.25 }}>
                   The suggested target is a starting point only. Choose or enter the target supported by your clinical reasoning.
                 </Typography>
-                <ChoiceButtons options={targetOptions} value={effectiveGoal.target} suggested={suggestedTarget} onChange={value => update({ target: value, goalStatement: "" })} />
+                <ChoiceButtons options={targetOptions} value={effectiveGoal.target} suggested={suggestedTarget} onChange={value => update({ target: value })} />
                 <TextField
                   fullWidth
                   sx={{ mt: 1.5 }}
                   label={effectiveGoal.sourceType === "ROM" ? "Or enter your own ROM target" : effectiveGoal.sourceType === "Strength" ? "Or enter your own strength target" : "Or enter your own target performance"}
                   value={effectiveGoal.target}
-                  onChange={event => update({ target: event.target.value, goalStatement: "" })}
+                  onChange={event => update({ target: event.target.value })}
                   disabled={disabled}
                   placeholder={effectiveGoal.sourceType === "ROM" ? "Example: 110°" : effectiveGoal.sourceType === "Strength" ? "Example: 4-/5" : "Example: with setup assistance using adaptive equipment"}
                 />
@@ -351,15 +357,15 @@ export default function GoalBuilderDialog({
                       Cueing, equipment, safety, positioning, or other conditions that matter for performance.
                     </Typography>
                   </Box>
-                  {!!effectiveGoal.condition && <Button size="small" onClick={() => update({ condition: "", goalStatement: "" })}>Clear condition</Button>}
+                  {!!effectiveGoal.condition && <Button size="small" onClick={() => update({ condition: "" })}>Clear condition</Button>}
                 </Stack>
-                <ChoiceButtons options={conditionOptions} value={effectiveGoal.condition} onChange={value => update({ condition: value, goalStatement: "" })} />
+                <ChoiceButtons options={conditionOptions} value={effectiveGoal.condition} onChange={value => update({ condition: value })} />
                 <TextField
                   fullWidth
                   sx={{ mt: 1.5 }}
                   label="Or write your own condition"
                   value={effectiveGoal.condition}
-                  onChange={event => update({ condition: event.target.value, goalStatement: "" })}
+                  onChange={event => update({ condition: event.target.value })}
                   disabled={disabled}
                   multiline
                   minRows={2}
@@ -377,15 +383,15 @@ export default function GoalBuilderDialog({
                       Add repeated performance or measurement language when it strengthens the goal.
                     </Typography>
                   </Box>
-                  {!!effectiveGoal.measurableCriterion && <Button size="small" onClick={() => update({ measurableCriterion: "", goalStatement: "" })}>Clear criterion</Button>}
+                  {!!effectiveGoal.measurableCriterion && <Button size="small" onClick={() => update({ measurableCriterion: "" })}>Clear criterion</Button>}
                 </Stack>
-                <ChoiceButtons options={criterionOptions} value={effectiveGoal.measurableCriterion} onChange={value => update({ measurableCriterion: value, goalStatement: "" })} />
+                <ChoiceButtons options={criterionOptions} value={effectiveGoal.measurableCriterion} onChange={value => update({ measurableCriterion: value })} />
                 <TextField
                   fullWidth
                   sx={{ mt: 1.5 }}
                   label="Or write your own success criterion"
                   value={effectiveGoal.measurableCriterion}
-                  onChange={event => update({ measurableCriterion: event.target.value, goalStatement: "" })}
+                  onChange={event => update({ measurableCriterion: event.target.value })}
                   disabled={disabled}
                   multiline
                   minRows={2}
@@ -408,7 +414,7 @@ export default function GoalBuilderDialog({
                   sx={{ mt: 1.5 }}
                   label="Or enter your own timeframe"
                   value={effectiveGoal.timeframe}
-                  onChange={event => update({ timeframe: event.target.value, goalStatement: "" })}
+                  onChange={event => update({ timeframe: event.target.value })}
                   disabled={disabled}
                   placeholder="Example: within 10 treatment sessions"
                 />
@@ -419,10 +425,16 @@ export default function GoalBuilderDialog({
                 type="date"
                 label="Target date"
                 value={effectiveGoal.targetDate || ""}
-                onChange={event => update({ targetDate: event.target.value, goalStatement: "" })}
+                onChange={event => update({ targetDate: event.target.value })}
                 disabled={disabled}
                 InputLabelProps={{ shrink: true }}
               />
+
+              {hasCustomizedWording && (
+                <Alert severity="info">
+                  Customized goal wording is being preserved while you edit the structured fields. Review it below to make sure it still matches your selections, or reset it to the newly generated wording.
+                </Alert>
+              )}
 
               <Card variant="outlined">
                 <CardContent>
@@ -434,7 +446,7 @@ export default function GoalBuilderDialog({
                           The generated wording is fully editable. Your final text is what will be saved to the evaluation and carried into future progress notes.
                         </Typography>
                       </Box>
-                      {!!draft.goalStatement.trim() && (
+                      {hasCustomizedWording && (
                         <Button size="small" onClick={() => update({ goalStatement: "" })}>Reset to generated wording</Button>
                       )}
                     </Stack>
@@ -447,7 +459,7 @@ export default function GoalBuilderDialog({
                       minRows={5}
                       placeholder="Complete the earlier steps to generate a goal, or write the full goal in your own wording."
                     />
-                    {!!draft.goalStatement.trim() && <Chip size="small" label="Customized wording" color="info" sx={{ alignSelf: "flex-start" }} />}
+                    {hasCustomizedWording && <Chip size="small" label="Customized wording" color="info" sx={{ alignSelf: "flex-start" }} />}
                   </Stack>
                 </CardContent>
               </Card>
@@ -467,6 +479,11 @@ export default function GoalBuilderDialog({
                       : "Complete the required selections above to build the goal statement."
                   )}
                 </Typography>
+                {hasCustomizedWording && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+                    A customized final statement is preserved separately and can be reviewed on Step 4.
+                  </Typography>
+                )}
               </CardContent>
             </Card>
           )}
