@@ -1,4 +1,5 @@
 import {
+  arrayUnion,
   doc,
   getDoc,
   setDoc,
@@ -93,17 +94,34 @@ export function getLastCode(): string | null {
   return localStorage.getItem(PREFIX + "last-code");
 }
 
-
 export async function saveProgressNote(note: ProgressNote): Promise<void> {
+  const caseCode = note.sourceEvaluationCode.trim().toUpperCase();
+
   if (IS_E2E_TEST) {
     localStorage.setItem(PREFIX + "progress:" + note.resumeCode, JSON.stringify(note));
-    localStorage.setItem(PREFIX + "last-progress-code", note.resumeCode);
+    const rawIndex = localStorage.getItem(PREFIX + "progress-index:" + caseCode);
+    const existingCodes = rawIndex ? JSON.parse(rawIndex) as string[] : [];
+    const noteCodes = existingCodes.includes(note.resumeCode) ? existingCodes : [...existingCodes, note.resumeCode];
+    localStorage.setItem(PREFIX + "progress-index:" + caseCode, JSON.stringify(noteCodes));
+    localStorage.setItem(PREFIX + "last-progress-code", caseCode);
     return;
   }
+
   await ensureAnonymousAuth();
   await setDoc(doc(db, "progressNotes", note.resumeCode), note);
+  await setDoc(
+    doc(db, "progressNoteIndexes", caseCode),
+    {
+      sourceEvaluationCode: caseCode,
+      noteCodes: arrayUnion(note.resumeCode),
+      latestNoteCode: note.resumeCode,
+      updatedAt: new Date().toISOString(),
+    },
+    { merge: true },
+  );
+
   localStorage.setItem(PREFIX + "progress:" + note.resumeCode, JSON.stringify(note));
-  localStorage.setItem(PREFIX + "last-progress-code", note.resumeCode);
+  localStorage.setItem(PREFIX + "last-progress-code", caseCode);
 }
 
 export async function loadProgressNote(code: string): Promise<ProgressNote | null> {
@@ -111,21 +129,45 @@ export async function loadProgressNote(code: string): Promise<ProgressNote | nul
   if (!normalizedCode) return null;
 
   if (IS_E2E_TEST) {
-    const raw = localStorage.getItem(PREFIX + "progress:" + normalizedCode);
-    return raw ? JSON.parse(raw) as ProgressNote : null;
+    const rawIndex = localStorage.getItem(PREFIX + "progress-index:" + normalizedCode);
+    if (rawIndex) {
+      const noteCodes = JSON.parse(rawIndex) as string[];
+      const latestCode = noteCodes[noteCodes.length - 1];
+      const raw = latestCode ? localStorage.getItem(PREFIX + "progress:" + latestCode) : null;
+      if (raw) return JSON.parse(raw) as ProgressNote;
+    }
+
+    const legacyRaw = localStorage.getItem(PREFIX + "progress:" + normalizedCode);
+    return legacyRaw ? JSON.parse(legacyRaw) as ProgressNote : null;
   }
 
   await ensureAnonymousAuth();
-  const snapshot = await getDoc(doc(db, "progressNotes", normalizedCode));
-  if (snapshot.exists()) {
-    const note = snapshot.data() as ProgressNote;
+
+  const indexSnapshot = await getDoc(doc(db, "progressNoteIndexes", normalizedCode));
+  if (indexSnapshot.exists()) {
+    const index = indexSnapshot.data() as { latestNoteCode?: string; noteCodes?: string[] };
+    const latestCode = index.latestNoteCode || index.noteCodes?.[index.noteCodes.length - 1];
+    if (latestCode) {
+      const noteSnapshot = await getDoc(doc(db, "progressNotes", latestCode));
+      if (noteSnapshot.exists()) {
+        const note = noteSnapshot.data() as ProgressNote;
+        localStorage.setItem(PREFIX + "progress:" + note.resumeCode, JSON.stringify(note));
+        localStorage.setItem(PREFIX + "last-progress-code", normalizedCode);
+        return note;
+      }
+    }
+  }
+
+  // Backward-compatible fallback for the short-lived PN-code resume workflow.
+  const legacySnapshot = await getDoc(doc(db, "progressNotes", normalizedCode));
+  if (legacySnapshot.exists()) {
+    const note = legacySnapshot.data() as ProgressNote;
     localStorage.setItem(PREFIX + "progress:" + normalizedCode, JSON.stringify(note));
-    localStorage.setItem(PREFIX + "last-progress-code", normalizedCode);
+    localStorage.setItem(PREFIX + "last-progress-code", note.sourceEvaluationCode);
     return note;
   }
 
-  const raw = localStorage.getItem(PREFIX + "progress:" + normalizedCode);
-  return raw ? JSON.parse(raw) as ProgressNote : null;
+  return null;
 }
 
 export function getLastProgressCode(): string | null {
