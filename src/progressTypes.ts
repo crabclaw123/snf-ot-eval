@@ -2,9 +2,18 @@ import type { AssistanceLevel, ClientFactors, Evaluation, OTGoal, ROMAssessment,
 
 export type GoalProgressStatus = "" | "Met" | "Partially Met" | "Unmet";
 export type GoalPlan = "Continue" | "Upgrade" | "Discontinue";
+export type GoalLifecycleState = "active" | "completed";
+export type ProgressComparisonSource = "evaluation" | "progressNote";
 
 export interface ProgressGoal {
   goalId: string;
+  rootGoalId?: string;
+  parentGoalId?: string;
+  lineageDepth?: number;
+  goalState?: GoalLifecycleState;
+  completedAt?: string;
+  progressedToGoalId?: string;
+  createdFromProgressNoteCode?: string;
   originalGoal: OTGoal;
   currentPerformance: string;
   status: GoalProgressStatus;
@@ -17,6 +26,9 @@ export interface ProgressNote {
   id: string;
   resumeCode: string;
   sourceEvaluationCode: string;
+  comparisonSourceType?: ProgressComparisonSource;
+  comparisonSourceCode?: string;
+  previousProgressNoteCode?: string;
   studentName: string;
   status: "draft" | "submitted";
   createdAt: string;
@@ -123,6 +135,7 @@ export function createProgressNote(evaluation: Evaluation, resumeCode: string): 
 
   return {
     id: crypto.randomUUID(), resumeCode, sourceEvaluationCode: evaluation.resumeCode,
+    comparisonSourceType: "evaluation", comparisonSourceCode: evaluation.resumeCode,
     studentName: evaluation.studentName, status: "draft", createdAt: now, updatedAt: now,
     reportingPeriodStart: evaluation.formData.patientInfo.evaluationDate || "",
     reportingPeriodEnd: new Date().toISOString().slice(0,10),
@@ -146,7 +159,10 @@ export function createProgressNote(evaluation: Evaluation, resumeCode: string): 
     responseToIntervention: "", barriers: "", facilitators: "",
     goals: evaluation.formData.goalsPlanOfCare.goals.map(g => ({
       goalId: g.id,
-      originalGoal: g,
+      rootGoalId: g.id,
+      lineageDepth: 0,
+      goalState: "active",
+      originalGoal: { ...g },
       currentPerformance: g.sourceBaseline || g.current || "",
       status: "",
       plan: "Continue",
