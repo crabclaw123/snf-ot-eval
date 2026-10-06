@@ -1,18 +1,36 @@
 import { useMemo, useState } from "react";
 import { jsPDF } from "jspdf";
 import { Alert, Box, Button, Card, CardContent, Checkbox, Chip, Container, FormControl, FormControlLabel, InputLabel, LinearProgress, MenuItem, Select, Stack, TextField, Typography } from "@mui/material";
-import type { AssistanceLevel, Evaluation } from "./types";
+import type { AssistanceLevel, Evaluation, FindingStatus } from "./types";
+import { MOVEMENTS } from "./types";
 import type { GoalPlan, GoalProgressStatus, ProgressNote } from "./progressTypes";
 import { buildSuggestedAssessment, createProgressNote } from "./progressTypes";
 import { generateResumeCode, loadEvaluation, saveProgressNote } from "./storage";
 
 const ADLS: [string,string][] = [["eating","Eating"],["grooming","Grooming"],["bathing","Bathing"],["upperBodyDressing","Upper-body dressing"],["lowerBodyDressing","Lower-body dressing"],["toileting","Toileting"],["toiletTransfer","Toilet transfer"],["showerTransfer","Shower transfer"],["bedMobility","Bed mobility"],["transfers","Transfers"],["functionalMobility","Functional mobility"]];
 const LEVELS: string[] = ["Independent","Modified Independent","Supervision","Contact Guard Assist","Minimal Assist","Moderate Assist","Maximal Assist","Dependent","Not Assessed","Not Applicable","Non-ambulatory"];
+const FINDING_OPTIONS: FindingStatus[] = ["WNL","WFL","Impaired","Not Assessed"];
 const INTERVENTIONS = ["ADL retraining","Functional mobility / transfer training","Therapeutic exercise","Therapeutic activity","Balance training","Cognitive / compensatory strategy training","Neuromuscular re-education","Energy conservation","Adaptive equipment training","Caregiver education","Discharge planning"];
+const CLIENT_FIELDS: [keyof ProgressNote["currentClientFactors"],string][] = [
+  ["cognition","Cognition / command following"],
+  ["communication","Communication"],
+  ["vision","Vision"],
+  ["hearing","Hearing"],
+  ["sensation","Sensation"],
+  ["coordination","Coordination"],
+  ["balance","Balance"],
+  ["endurance","Endurance / activity tolerance"],
+  ["motorPlanning","Motor planning / praxis"],
+  ["functionalMobility","Functional mobility"],
+  ["standardizedAssessments","Standardized assessments"],
+  ["assessmentFindings","Assessment findings"],
+];
 const PAGES = [
   ["period", "Progress Period / Medical Update"],
   ["function", "Functional Progress"],
-  ["performance", "Performance Factors"],
+  ["cognition", "Cognition / Sensory"],
+  ["rom", "ROM"],
+  ["strength", "Strength"],
   ["goals", "Goal Progress"],
   ["intervention", "Skilled OT / Response"],
   ["assessment", "Assessment & Plan"],
@@ -21,6 +39,15 @@ type PageId = typeof PAGES[number][0];
 
 function Field({label,value,onChange,multiline=false,type}:{label:string;value:string;onChange:(v:string)=>void;multiline?:boolean;type?:string}) {
   return <TextField fullWidth label={label} type={type} value={value} onChange={e=>onChange(e.target.value)} multiline={multiline} minRows={multiline?3:undefined} InputLabelProps={type==="date"?{shrink:true}:undefined}/>;
+}
+
+function ConfirmButton({confirmed,onConfirm}:{confirmed:boolean;onConfirm:()=>void}) {
+  return <Button variant={confirmed?"contained":"outlined"} color={confirmed?"success":"primary"} onClick={onConfirm}>{confirmed?"Confirmed":"Confirm current status"}</Button>;
+}
+
+function orientationText(factors: ProgressNote["currentClientFactors"]) {
+  const selected = [factors.orientedPerson&&"Person",factors.orientedPlace&&"Place",factors.orientedTime&&"Time",factors.orientedSituation&&"Situation"].filter(Boolean);
+  return selected.length ? selected.join(", ") : "Not oriented domains documented";
 }
 
 function exportProgressNotePdf(note: ProgressNote, evaluation: Evaluation) {
@@ -64,15 +91,33 @@ function exportProgressNotePdf(note: ProgressNote, evaluation: Evaluation) {
   for(const [key,label] of ADLS){
     const baseline=evaluation.formData.adlStatus.current[key] || "Not documented";
     const current=note.currentADL[key] || "Not documented";
-    addField(label,`Initial eval: ${baseline} -> Current: ${current}`);
+    addField(label,`Initial eval: ${baseline} -> Current: ${current} | Confirmed: ${note.functionalADLConfirmed?.[key]?"Yes":"No"}`);
   }
   addField("Functional progress / observations",note.functionalNotes);
 
-  addSection("3. Performance Factors");
-  addField("ROM update",note.romUpdate); addField("Strength update",note.strengthUpdate); addField("Balance update",note.balanceUpdate);
-  addField("Endurance / activity tolerance update",note.enduranceUpdate); addField("Cognition / safety awareness update",note.cognitionSafetyUpdate); addField("Other performance component changes",note.otherPerformanceUpdate);
+  addSection("3. Cognition / Communication / Sensory");
+  addField("Orientation",`${orientationText(note.currentClientFactors)} | Confirmed: ${note.cognitionConfirmed?.orientation?"Yes":"No"}`);
+  for(const [key,label] of CLIENT_FIELDS) addField(label,`${String(note.currentClientFactors[key] ?? "") || "Not documented"} | Confirmed: ${note.cognitionConfirmed?.[String(key)]?"Yes":"No"}`);
 
-  addSection("4. Goal Progress");
+  addSection("4. Range of Motion");
+  for(const movement of MOVEMENTS){
+    for(const side of ["right","left"] as const){
+      const finding=note.currentROM[side][movement];
+      addField(`${side==="right"?"Right":"Left"} ${movement}`,`${finding.status || "Not documented"}${finding.arom?` | AROM: ${finding.arom} deg`:""}${finding.prom?` | PROM: ${finding.prom} deg`:""}${finding.notes?` | ${finding.notes}`:""} | Confirmed: ${note.romConfirmed?.[`${side}:${movement}`]?"Yes":"No"}`);
+    }
+  }
+  addField("ROM summary / notes",note.currentROM.notes);
+
+  addSection("5. Strength");
+  for(const movement of MOVEMENTS){
+    for(const side of ["right","left"] as const){
+      const finding=note.currentStrength[side][movement];
+      addField(`${side==="right"?"Right":"Left"} ${movement}`,`${finding.status || "Not documented"}${finding.mmt?` | MMT: ${finding.mmt}`:""}${finding.notes?` | ${finding.notes}`:""} | Confirmed: ${note.strengthConfirmed?.[`${side}:${movement}`]?"Yes":"No"}`);
+    }
+  }
+  addField("Strength summary / notes",note.currentStrength.notes);
+
+  addSection("6. Goal Progress");
   if(!note.goals.length) addText("No structured goals were carried forward.",10);
   note.goals.forEach((g,i)=>{
     addText(`${g.originalGoal.type} Goal ${i+1}`,10,true);
@@ -80,15 +125,15 @@ function exportProgressNotePdf(note: ProgressNote, evaluation: Evaluation) {
     addField("Baseline / target",`${g.originalGoal.current || "Not documented"} -> ${g.originalGoal.target || "Not documented"}`);
     addField("Target date",g.originalGoal.targetDate || "Not documented");
     addField("Current performance",g.currentPerformance); addField("Status",g.status); addField("Goal plan",g.plan);
-    addField("Modified / updated goal",g.modifiedGoal); addField("Goal progress notes",g.notes);
+    addField("Upgraded / updated goal",g.modifiedGoal); addField("Goal progress notes",g.notes);
   });
 
-  addSection("5. Skilled OT / Response");
+  addSection("7. Skilled OT / Response");
   addField("Interventions addressed",note.skilledInterventions.join(", "));
   addField("Patient response / skilled clinical observations",note.responseToIntervention);
   addField("Barriers affecting progress",note.barriers); addField("Facilitators / supports",note.facilitators);
 
-  addSection("6. Assessment & Plan");
+  addSection("8. Assessment & Plan");
   addField("Clinical assessment / progress summary",note.assessment);
   addField("Why continued skilled OT is required",note.continuedSkilledNeed);
   addField("Plan decision",note.planDecision);
@@ -116,12 +161,29 @@ export default function ProgressNoteScreen({onExit}:{onExit:()=>void}) {
     } catch(e){console.error(e);setMessage("Could not load the initial evaluation.");}
     finally{setBusy(false);}
   }
+
   function patch<K extends keyof ProgressNote>(key:K,value:ProgressNote[K]) {
     setNote(n=>n?{...n,[key]:value,updatedAt:new Date().toISOString()}:n);
   }
   function patchGoal(index:number,changes:Partial<ProgressNote["goals"][number]>) {
     if(!note)return; const goals=note.goals.map((g,i)=>i===index?{...g,...changes}:g); patch("goals",goals);
   }
+  function confirmFunctional(key:string){patch("functionalADLConfirmed",{...note!.functionalADLConfirmed,[key]:true});}
+  function updateClientFactor(key:keyof ProgressNote["currentClientFactors"],value:string|boolean){
+    patch("currentClientFactors",{...note!.currentClientFactors,[key]:value});
+    patch("cognitionConfirmed",{...note!.cognitionConfirmed,[String(key)]:false});
+  }
+  function updateROM(side:"right"|"left",movement:string,field:"status"|"arom"|"prom"|"notes",value:string){
+    const current=note!.currentROM;
+    patch("currentROM",{...current,[side]:{...current[side],[movement]:{...current[side][movement],[field]:value}}});
+    patch("romConfirmed",{...note!.romConfirmed,[`${side}:${movement}`]:false});
+  }
+  function updateStrength(side:"right"|"left",movement:string,field:"status"|"mmt"|"notes",value:string){
+    const current=note!.currentStrength;
+    patch("currentStrength",{...current,[side]:{...current[side],[movement]:{...current[side][movement],[field]:value}}});
+    patch("strengthConfirmed",{...note!.strengthConfirmed,[`${side}:${movement}`]:false});
+  }
+
   const improved = useMemo(()=>{
     if(!note||!evaluation)return {} as Record<string,string>;
     const rank=["Dependent","Maximal Assist","Moderate Assist","Minimal Assist","Contact Guard Assist","Supervision","Modified Independent","Independent"];
@@ -136,7 +198,7 @@ export default function ProgressNoteScreen({onExit}:{onExit:()=>void}) {
   }
 
   if(!note||!evaluation) return <Container maxWidth="sm" sx={{py:6}}><Stack spacing={3}>
-    <Box><Typography variant="h3" fontWeight={800}>OT Progress Note</Typography><Typography color="text.secondary">Start from a saved initial evaluation so baseline function and goals carry forward automatically.</Typography></Box>
+    <Box><Typography variant="h3" fontWeight={800}>OT Progress Note</Typography><Typography color="text.secondary">Start from a saved initial evaluation so baseline function, cognition, ROM, strength, and goals carry forward automatically.</Typography></Box>
     <Card><CardContent><Stack spacing={2}><Typography variant="h5">Load initial evaluation</Typography><Field label="Initial evaluation resume code" value={evalCode} onChange={v=>setEvalCode(v.toUpperCase())}/><Button variant="contained" onClick={loadSource} disabled={busy}>Create Progress Note</Button></Stack></CardContent></Card>
     {message&&<Alert severity="error">{message}</Alert>}<Button onClick={onExit}>Back to Home</Button>
   </Stack></Container>;
@@ -153,29 +215,47 @@ export default function ProgressNoteScreen({onExit}:{onExit:()=>void}) {
         <Field label="Falls / hospitalizations / acute events" value={note.fallsHospitalizations} onChange={v=>patch("fallsHospitalizations",v)}/>
         <Field label="Precaution / weight-bearing changes" value={note.precautionsChanges} onChange={v=>patch("precautionsChanges",v)}/>
       </Stack></CardContent></Card>;
+
       case "function": return <Card><CardContent><Stack spacing={2}><Typography variant="h5" fontWeight={700}>2. Functional Progress</Typography>
-        <Alert severity="info">Initial evaluation status is carried forward as the comparison baseline. Update only the patient's current performance.</Alert>
-        {ADLS.map(([key,label])=>{const baseline=evaluation.formData.adlStatus.current[key]||"Not documented"; return <Card variant="outlined" key={key}><CardContent><Stack spacing={1.5}><Stack direction={{xs:"column",sm:"row"}} justifyContent="space-between"><Typography fontWeight={700}>{label}</Typography>{improved[key]&&<Chip size="small" label={improved[key]} color={improved[key]==="Improved"?"success":improved[key]==="Declined"?"warning":"default"}/>}</Stack><Typography variant="body2" color="text.secondary">Initial eval: <b>{baseline}</b> → Current</Typography><FormControl fullWidth><InputLabel>Current level</InputLabel><Select label="Current level" value={note.currentADL[key]||""} onChange={e=>patch("currentADL",{...note.currentADL,[key]:e.target.value as AssistanceLevel})}>{LEVELS.filter(x=>key==="functionalMobility"||x!=="Non-ambulatory").map(x=><MenuItem key={x} value={x}>{x}</MenuItem>)}</Select></FormControl></Stack></CardContent></Card>})}
+        <Alert severity="info">Initial evaluation status is carried forward. Review every item and click Confirm even if performance is unchanged. Changing a level after confirming resets that confirmation.</Alert>
+        {ADLS.map(([key,label])=>{const baseline=evaluation.formData.adlStatus.current[key]||"Not documented"; return <Card variant="outlined" key={key}><CardContent><Stack spacing={1.5}><Stack direction={{xs:"column",sm:"row"}} justifyContent="space-between"><Typography fontWeight={700}>{label}</Typography>{improved[key]&&<Chip size="small" label={improved[key]} color={improved[key]==="Improved"?"success":improved[key]==="Declined"?"warning":"default"}/>}</Stack><Typography variant="body2" color="text.secondary">Initial eval: <b>{baseline}</b> → Current</Typography><FormControl fullWidth><InputLabel>Current level</InputLabel><Select label="Current level" value={note.currentADL[key]||""} onChange={e=>{patch("currentADL",{...note.currentADL,[key]:e.target.value as AssistanceLevel});patch("functionalADLConfirmed",{...note.functionalADLConfirmed,[key]:false});}}>{LEVELS.filter(x=>key==="functionalMobility"||x!=="Non-ambulatory").map(x=><MenuItem key={x} value={x}>{x}</MenuItem>)}</Select></FormControl><ConfirmButton confirmed={!!note.functionalADLConfirmed[key]} onConfirm={()=>confirmFunctional(key)}/></Stack></CardContent></Card>})}
         <Field label="Functional progress / observations" value={note.functionalNotes} onChange={v=>patch("functionalNotes",v)} multiline/>
       </Stack></CardContent></Card>;
-      case "performance": return <Card><CardContent><Stack spacing={2}><Typography variant="h5" fontWeight={700}>3. Performance Factors — What Changed?</Typography>
-        <Alert severity="info">This is intentionally not a second evaluation. Document clinically meaningful changes rather than repeating every measurement.</Alert>
-        <Field label="ROM update" value={note.romUpdate} onChange={v=>patch("romUpdate",v)} multiline/><Field label="Strength update" value={note.strengthUpdate} onChange={v=>patch("strengthUpdate",v)} multiline/><Field label="Balance update" value={note.balanceUpdate} onChange={v=>patch("balanceUpdate",v)} multiline/><Field label="Endurance / activity tolerance update" value={note.enduranceUpdate} onChange={v=>patch("enduranceUpdate",v)} multiline/><Field label="Cognition / safety awareness update" value={note.cognitionSafetyUpdate} onChange={v=>patch("cognitionSafetyUpdate",v)} multiline/><Field label="Other performance component changes" value={note.otherPerformanceUpdate} onChange={v=>patch("otherPerformanceUpdate",v)} multiline/>
+
+      case "cognition": return <Card><CardContent><Stack spacing={2}><Typography variant="h5" fontWeight={700}>3. Cognition / Communication / Sensory</Typography>
+        <Alert severity="info">Evaluation findings are carried forward. Confirm each item if unchanged, or update it and then confirm the new status.</Alert>
+        <Card variant="outlined"><CardContent><Stack spacing={1.5}><Typography fontWeight={700}>Orientation</Typography><Typography variant="body2" color="text.secondary">Initial eval: {orientationText(evaluation.formData.clientFactors)}</Typography><Stack direction={{xs:"column",sm:"row"}} spacing={1}><FormControlLabel control={<Checkbox checked={note.currentClientFactors.orientedPerson} onChange={e=>{updateClientFactor("orientedPerson",e.target.checked);patch("cognitionConfirmed",{...note.cognitionConfirmed,orientation:false});}}/>} label="Person"/><FormControlLabel control={<Checkbox checked={note.currentClientFactors.orientedPlace} onChange={e=>{updateClientFactor("orientedPlace",e.target.checked);patch("cognitionConfirmed",{...note.cognitionConfirmed,orientation:false});}}/>} label="Place"/><FormControlLabel control={<Checkbox checked={note.currentClientFactors.orientedTime} onChange={e=>{updateClientFactor("orientedTime",e.target.checked);patch("cognitionConfirmed",{...note.cognitionConfirmed,orientation:false});}}/>} label="Time"/><FormControlLabel control={<Checkbox checked={note.currentClientFactors.orientedSituation} onChange={e=>{updateClientFactor("orientedSituation",e.target.checked);patch("cognitionConfirmed",{...note.cognitionConfirmed,orientation:false});}}/>} label="Situation"/></Stack><ConfirmButton confirmed={!!note.cognitionConfirmed.orientation} onConfirm={()=>patch("cognitionConfirmed",{...note.cognitionConfirmed,orientation:true})}/></Stack></CardContent></Card>
+        {CLIENT_FIELDS.map(([key,label])=><Card variant="outlined" key={String(key)}><CardContent><Stack spacing={1.5}><Typography fontWeight={700}>{label}</Typography><Typography variant="body2" color="text.secondary">Initial eval: {String(evaluation.formData.clientFactors[key] ?? "") || "Not documented"}</Typography><Field label="Current status" value={String(note.currentClientFactors[key] ?? "")} onChange={v=>updateClientFactor(key,v)} multiline={key==="standardizedAssessments"||key==="assessmentFindings"}/><ConfirmButton confirmed={!!note.cognitionConfirmed[String(key)]} onConfirm={()=>patch("cognitionConfirmed",{...note.cognitionConfirmed,[String(key)]:true})}/></Stack></CardContent></Card>)}
       </Stack></CardContent></Card>;
-      case "goals": return <Card><CardContent><Stack spacing={2}><Typography variant="h5" fontWeight={700}>4. Goal Progress</Typography>
+
+      case "rom": return <Card><CardContent><Stack spacing={2}><Typography variant="h5" fontWeight={700}>4. Range of Motion</Typography>
+        <Alert severity="info">ROM findings from the evaluation are pre-populated. Confirm each side/movement if unchanged, or update the finding before confirming.</Alert>
+        {MOVEMENTS.map(movement=><Box key={movement}><Typography variant="h6" sx={{mb:1}}>{movement}</Typography><Stack direction={{xs:"column",lg:"row"}} spacing={1.5}>{(["right","left"] as const).map(side=>{const f=note.currentROM[side][movement];const baseline=evaluation.formData.rom[side][movement];const confirmKey=`${side}:${movement}`;return <Card variant="outlined" key={confirmKey} sx={{flex:1}}><CardContent><Stack spacing={1.5}><Typography fontWeight={700}>{side==="right"?"Right":"Left"}</Typography><Typography variant="body2" color="text.secondary">Eval: {baseline.status||"Not documented"}{baseline.arom?` · AROM ${baseline.arom}°`:""}{baseline.prom?` · PROM ${baseline.prom}°`:""}</Typography><FormControl fullWidth><InputLabel>Finding</InputLabel><Select label="Finding" value={f.status} onChange={e=>updateROM(side,movement,"status",e.target.value)}><MenuItem value=""><em>Not documented</em></MenuItem>{FINDING_OPTIONS.map(x=><MenuItem key={x} value={x}>{x}</MenuItem>)}</Select></FormControl>{f.status==="Impaired"&&<><Field label="AROM (degrees)" value={f.arom} onChange={v=>updateROM(side,movement,"arom",v)}/><Field label="PROM (degrees)" value={f.prom} onChange={v=>updateROM(side,movement,"prom",v)}/><Field label="Notes" value={f.notes} onChange={v=>updateROM(side,movement,"notes",v)}/></>}<ConfirmButton confirmed={!!note.romConfirmed[confirmKey]} onConfirm={()=>patch("romConfirmed",{...note.romConfirmed,[confirmKey]:true})}/></Stack></CardContent></Card>})}</Stack></Box>)}
+        <Field label="ROM summary / clinical notes" value={note.currentROM.notes} onChange={v=>patch("currentROM",{...note.currentROM,notes:v})} multiline/>
+      </Stack></CardContent></Card>;
+
+      case "strength": return <Card><CardContent><Stack spacing={2}><Typography variant="h5" fontWeight={700}>5. Strength</Typography>
+        <Alert severity="info">Strength findings from the evaluation are pre-populated. Confirm each side/movement if unchanged, or update the finding before confirming.</Alert>
+        {MOVEMENTS.map(movement=><Box key={movement}><Typography variant="h6" sx={{mb:1}}>{movement}</Typography><Stack direction={{xs:"column",lg:"row"}} spacing={1.5}>{(["right","left"] as const).map(side=>{const f=note.currentStrength[side][movement];const baseline=evaluation.formData.strength[side][movement];const confirmKey=`${side}:${movement}`;return <Card variant="outlined" key={confirmKey} sx={{flex:1}}><CardContent><Stack spacing={1.5}><Typography fontWeight={700}>{side==="right"?"Right":"Left"}</Typography><Typography variant="body2" color="text.secondary">Eval: {baseline.status||"Not documented"}{baseline.mmt?` · MMT ${baseline.mmt}`:""}</Typography><FormControl fullWidth><InputLabel>Finding</InputLabel><Select label="Finding" value={f.status} onChange={e=>updateStrength(side,movement,"status",e.target.value)}><MenuItem value=""><em>Not documented</em></MenuItem>{FINDING_OPTIONS.map(x=><MenuItem key={x} value={x}>{x}</MenuItem>)}</Select></FormControl>{f.status==="Impaired"&&<><Field label="MMT" value={f.mmt} onChange={v=>updateStrength(side,movement,"mmt",v)}/><Field label="Notes" value={f.notes} onChange={v=>updateStrength(side,movement,"notes",v)}/></>}<ConfirmButton confirmed={!!note.strengthConfirmed[confirmKey]} onConfirm={()=>patch("strengthConfirmed",{...note.strengthConfirmed,[confirmKey]:true})}/></Stack></CardContent></Card>})}</Stack></Box>)}
+        <Field label="Strength summary / clinical notes" value={note.currentStrength.notes} onChange={v=>patch("currentStrength",{...note.currentStrength,notes:v})} multiline/>
+      </Stack></CardContent></Card>;
+
+      case "goals": return <Card><CardContent><Stack spacing={2}><Typography variant="h5" fontWeight={700}>6. Goal Progress</Typography>
         {note.goals.length===0?<Alert severity="warning">No structured goals were found in the initial evaluation.</Alert>:note.goals.map((g,i)=><Card variant="outlined" key={g.goalId||i}><CardContent><Stack spacing={2}>
           <Typography fontWeight={700}>{g.originalGoal.type} Goal {i+1}</Typography><Typography>{g.originalGoal.goalStatement}</Typography>
           <Typography variant="body2" color="text.secondary">Baseline: {g.originalGoal.current||"Not documented"} · Target: {g.originalGoal.target||"Not documented"} · Target date: {g.originalGoal.targetDate||"Not documented"}</Typography>
           <Field label="Current performance" value={g.currentPerformance} onChange={v=>patchGoal(i,{currentPerformance:v})}/>
-          <Stack direction={{xs:"column",sm:"row"}} spacing={2}><FormControl fullWidth><InputLabel>Status</InputLabel><Select label="Status" value={g.status} onChange={e=>patchGoal(i,{status:e.target.value as GoalProgressStatus})}>{["Met","Progressing","Limited Progress","Not Met"].map(x=><MenuItem key={x} value={x}>{x}</MenuItem>)}</Select></FormControl><FormControl fullWidth><InputLabel>Goal plan</InputLabel><Select label="Goal plan" value={g.plan} onChange={e=>patchGoal(i,{plan:e.target.value as GoalPlan})}>{["Continue","Modify","Discontinue"].map(x=><MenuItem key={x} value={x}>{x}</MenuItem>)}</Select></FormControl></Stack>
-          {g.plan==="Modify"&&<Field label="Modified / updated goal" value={g.modifiedGoal} onChange={v=>patchGoal(i,{modifiedGoal:v})} multiline/>}<Field label="Goal progress notes" value={g.notes} onChange={v=>patchGoal(i,{notes:v})} multiline/>
+          <Stack direction={{xs:"column",sm:"row"}} spacing={2}><FormControl fullWidth><InputLabel>Status</InputLabel><Select label="Status" value={g.status} onChange={e=>patchGoal(i,{status:e.target.value as GoalProgressStatus})}>{["Met","Partially Met","Unmet"].map(x=><MenuItem key={x} value={x}>{x}</MenuItem>)}</Select></FormControl><FormControl fullWidth><InputLabel>Goal plan</InputLabel><Select label="Goal plan" value={g.plan} onChange={e=>patchGoal(i,{plan:e.target.value as GoalPlan})}>{["Continue","Upgrade","Discontinue"].map(x=><MenuItem key={x} value={x}>{x}</MenuItem>)}</Select></FormControl></Stack>
+          {g.plan==="Upgrade"&&<Field label="Upgraded / updated goal" value={g.modifiedGoal} onChange={v=>patchGoal(i,{modifiedGoal:v})} multiline/>}<Field label="Goal progress notes" value={g.notes} onChange={v=>patchGoal(i,{notes:v})} multiline/>
         </Stack></CardContent></Card>)}
       </Stack></CardContent></Card>;
-      case "intervention": return <Card><CardContent><Stack spacing={2}><Typography variant="h5" fontWeight={700}>5. Skilled OT / Response</Typography>
+
+      case "intervention": return <Card><CardContent><Stack spacing={2}><Typography variant="h5" fontWeight={700}>7. Skilled OT / Response</Typography>
         <Typography fontWeight={600}>Interventions addressed during reporting period</Typography>{INTERVENTIONS.map(x=><FormControlLabel key={x} control={<Checkbox checked={note.skilledInterventions.includes(x)} onChange={e=>patch("skilledInterventions",e.target.checked?[...note.skilledInterventions,x]:note.skilledInterventions.filter(v=>v!==x))}/>} label={x}/>)}
         <Field label="Patient response / skilled clinical observations" value={note.responseToIntervention} onChange={v=>patch("responseToIntervention",v)} multiline/><Field label="Barriers affecting progress" value={note.barriers} onChange={v=>patch("barriers",v)} multiline/><Field label="Facilitators / supports" value={note.facilitators} onChange={v=>patch("facilitators",v)} multiline/>
       </Stack></CardContent></Card>;
-      case "assessment": return <Card><CardContent><Stack spacing={2}><Typography variant="h5" fontWeight={700}>6. Assessment & Plan</Typography>
+
+      case "assessment": return <Card><CardContent><Stack spacing={2}><Typography variant="h5" fontWeight={700}>8. Assessment & Plan</Typography>
         <Button variant="outlined" onClick={()=>patch("assessment",buildSuggestedAssessment(note,evaluation))}>Draft Assessment From Documented Change</Button>
         <Field label="Clinical assessment / progress summary" value={note.assessment} onChange={v=>patch("assessment",v)} multiline/><Field label="Why continued skilled OT is required" value={note.continuedSkilledNeed} onChange={v=>patch("continuedSkilledNeed",v)} multiline/>
         <FormControl fullWidth><InputLabel>Plan decision</InputLabel><Select label="Plan decision" value={note.planDecision} onChange={e=>patch("planDecision",e.target.value as ProgressNote["planDecision"])}>{["Continue POC","Modify POC","Discharge OT"].map(x=><MenuItem key={x} value={x}>{x}</MenuItem>)}</Select></FormControl>
