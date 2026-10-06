@@ -126,10 +126,6 @@ export function parseFindingContext(context: string): Partial<OTGoal> {
   };
 }
 
-export function isFunctionalGoal(goal: OTGoal): boolean {
-  return !goal.sourceType || goal.sourceType === "Functional";
-}
-
 export function recommendedTarget(goal: OTGoal): string {
   if (goal.sourceType === "ROM") {
     const n = Number(String(goal.sourceBaseline || "").replace(/[^0-9.-]/g, ""));
@@ -197,7 +193,7 @@ export function smartPurposeOptions(goal: OTGoal): string[] {
 
   return [
     `increase independence with ${activity}`,
-    `reduce caregiver assistance required for ${activity}`,
+    `reduce caregiver assistance during ${activity}`,
     `improve safety and consistency during ${activity}`,
     `support return toward prior level of ${activity} performance`,
     `improve participation in ${activity} as part of the daily routine`,
@@ -239,7 +235,7 @@ export function smartCriterionOptions(goal: OTGoal): string[] {
     return [
       "as measured by goniometry",
       "across 2 consecutive treatment sessions",
-      "with the target range demonstrated on 2 consecutive treatment sessions",
+      "across 2 treatment sessions with the target range demonstrated consistently",
     ];
   }
 
@@ -247,14 +243,14 @@ export function smartCriterionOptions(goal: OTGoal): string[] {
     return [
       "as measured by manual muscle testing",
       "across 2 consecutive treatment sessions",
-      "with the target strength demonstrated on 2 consecutive treatment sessions",
+      "across 2 treatment sessions with the target strength demonstrated consistently",
     ];
   }
 
   return [
     "in 4 out of 5 observed opportunities",
     "across 3 consecutive treatment sessions",
-    "with consistent carryover across 3 treatment sessions",
+    "across 3 treatment sessions with consistent carryover",
     "during 2 consecutive treatment sessions",
   ];
 }
@@ -291,13 +287,18 @@ function assistancePhrase(target: string): string {
   return `at the documented target of ${value}`;
 }
 
-function attachFunctionalCondition(targetPhrase: string, condition: string): string {
-  const value = clean(condition);
-  if (!value) return targetPhrase;
-  if (/^with\s+/i.test(targetPhrase) && /^with\s+/i.test(value)) {
-    return `${targetPhrase} and ${value.replace(/^with\s+/i, "")}`;
-  }
-  return `${targetPhrase} ${value}`.trim();
+function assistanceNoun(level: string | undefined): string {
+  const map: Record<string, string> = {
+    Independent: "independence",
+    "Modified Independent": "modified independence",
+    Supervision: "supervision",
+    "Contact Guard Assist": "contact guard assistance",
+    "Minimal Assist": "minimal assistance",
+    "Moderate Assist": "moderate assistance",
+    "Maximal Assist": "maximal assistance",
+    Dependent: "dependent assistance",
+  };
+  return map[clean(level)] || "";
 }
 
 function normalizeRomValue(value: string | undefined): string {
@@ -314,11 +315,12 @@ function normalizeStrengthValue(value: string | undefined): string {
   return text;
 }
 
-function finishStatement(body: string, goal: OTGoal): string {
+function finishStatement(body: string, goal: OTGoal, commaBeforePurpose = false): string {
   const purpose = normalizePurpose(goal.performanceProblem) || "improve occupational performance";
   const time = timeframePhrase(goal.timeframe);
   const targetDate = formatGoalDate(goal.targetDate);
-  const withPurpose = `${body} to ${purpose}`;
+  const purposeJoiner = commaBeforePurpose ? ", to " : " to ";
+  const withPurpose = `${body}${purposeJoiner}${purpose}`;
   const withTime = time ? `${withPurpose} ${time}` : withPurpose;
   return `${withTime}${targetDate ? ` (target date: ${targetDate})` : ""}.`;
 }
@@ -341,9 +343,9 @@ export function buildGoalStatement(goal: OTGoal): string {
       ? `Patient will demonstrate functional ${side} ${movement.toLowerCase()} ${metric} sufficient for ${activity}`
       : `Patient will increase ${side} ${movement.toLowerCase()} ${metric} from ${baseline} to ${target}`;
 
-    if (condition) body += `, ${condition}`;
+    if (condition) body += ` ${condition}`;
     if (criterion) body += `, ${criterion}`;
-    return finishStatement(body, goal);
+    return finishStatement(body, goal, true);
   }
 
   if (goal.sourceType === "Strength") {
@@ -356,13 +358,18 @@ export function buildGoalStatement(goal: OTGoal): string {
       ? `Patient will demonstrate functional ${side} ${movement.toLowerCase()} strength sufficient for ${activity}`
       : `Patient will improve ${side} ${movement.toLowerCase()} strength from ${baseline} to ${target}`;
 
-    if (condition) body += `, ${condition}`;
+    if (condition) body += ` ${condition}`;
     if (criterion) body += `, ${criterion}`;
-    return finishStatement(body, goal);
+    return finishStatement(body, goal, true);
   }
 
-  const targetPhrase = assistancePhrase(goal.target);
-  let performance = `Patient will complete ${activity} ${attachFunctionalCondition(targetPhrase, condition)}`.trim();
+  const currentNoun = assistanceNoun(goal.current);
+  const targetNoun = assistanceNoun(goal.target);
+  let performance = currentNoun && targetNoun
+    ? `Patient will improve ${activity} from ${currentNoun} to ${targetNoun}`
+    : `Patient will complete ${activity} ${assistancePhrase(goal.target)}`.trim();
+
+  if (condition) performance += ` ${condition}`;
   if (criterion) performance += ` ${criterion}`;
   return finishStatement(performance, goal);
 }
