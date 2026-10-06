@@ -398,8 +398,10 @@ export default function App() {
         goalsPlanOfCare: {
           ...evaluation.formData.goalsPlanOfCare,
           goals,
-          shortTermGoals: goals.filter(g => g.type === "Short-term").map(g => g.goalStatement).join("\n"),
-          longTermGoals: goals.filter(g => g.type === "Long-term").map(g => g.goalStatement).join("\n"),
+          shortTermGoals: goals.filter(g => g.type === "Short-term").map(g => g.goalStatement).join("
+"),
+          longTermGoals: goals.filter(g => g.type === "Long-term").map(g => g.goalStatement).join("
+"),
         },
       },
     } as Evaluation;
@@ -774,7 +776,9 @@ export default function App() {
     }
   }
 
-  if (screen === "progress") return <ProgressNoteScreen onExit={() => { setScreen("home"); setMessage(""); }} />;\n\n  if (screen === "evaluation" && evaluation) return <Container maxWidth="xl" sx={{ py: 3 }}><Stack spacing={2}>
+  if (screen === "progress") return <ProgressNoteScreen onExit={() => { setScreen("home"); setMessage(""); }} />;
+
+  if (screen === "evaluation" && evaluation) return <Container maxWidth="xl" sx={{ py: 3 }}><Stack spacing={2}>
     <Stack direction={{xs:"column",lg:"row"}} spacing={2} alignItems={{xs:"flex-start",lg:"center"}} justifyContent="space-between"><Box><Typography variant="h4" fontWeight={800}>SNF OT Initial Evaluation</Typography><Typography color="text.secondary">Student: {evaluation.studentName} · Resume code: {evaluation.resumeCode}</Typography></Box><Chip label={evaluation.status === "submitted" ? "Submitted" : "Draft"}/></Stack>
     <LinearProgress variant="determinate" value={progress}/>
     <Stack direction={{xs:"column",md:"row"}} spacing={3} alignItems="flex-start">
@@ -814,5 +818,5 @@ export default function App() {
     </Dialog>
   </Stack></Container>;
 
-  return <Container maxWidth="sm" sx={{py:8}}><Stack spacing={3}><Box><Typography variant="h3" fontWeight={800}>SNF OT Evaluation</Typography><Typography variant="h6" color="text.secondary">Interactive teaching and practice tool for SNF OT initial evaluations.</Typography></Box><Alert severity="info"><Typography fontWeight={700}>Educational Demonstration</Typography><Typography variant="body2" sx={{mt:0.5}}>This is an early prototype designed to demonstrate the workflow and documentation structure of a skilled nursing facility occupational therapy initial evaluation. All patient information is fictional. Some features, including save/resume functionality, are still undergoing testing and refinement.</Typography></Alert><Card><CardContent><Stack spacing={2}><Typography variant="h5">Start a blank evaluation</Typography><Field label="Student name" value={studentName} disabled={busy} onChange={setStudentName}/><Button variant="contained" size="large" onClick={startEvaluation} disabled={busy}>Start Evaluation</Button></Stack></CardContent></Card><Card><CardContent><Stack spacing={2}><Typography variant="h5">Progress note</Typography><Typography color="text.secondary">Create a progress note from a saved initial evaluation. Baseline function and goals carry forward automatically.</Typography><Button variant="contained" color="secondary" size="large" onClick={()=>{setMessage(\"\");setScreen(\"progress\");}}>Start Progress Note</Button></Stack></CardContent></Card><Divider>OR</Divider><Card><CardContent><Stack spacing={2}><Typography variant="h5">Resume an evaluation</Typography><Field label="Resume code" value={resumeCode} disabled={busy} onChange={v=>setResumeCode(v.toUpperCase())}/><Button variant="outlined" size="large" onClick={resumeEvaluation} disabled={busy}>Resume Evaluation</Button></Stack></CardContent></Card>{message&&<Alert severity="error">{message}</Alert>}</Stack></Container>;
+  return <Container maxWidth="sm" sx={{py:8}}><Stack spacing={3}><Box><Typography variant="h3" fontWeight={800}>SNF OT Evaluation</Typography><Typography variant="h6" color="text.secondary">Interactive teaching and practice tool for SNF OT initial evaluations.</Typography></Box><Alert severity="info"><Typography fontWeight={700}>Educational Demonstration</Typography><Typography variant="body2" sx={{mt:0.5}}>This is an early prototype designed to demonstrate the workflow and documentation structure of a skilled nursing facility occupational therapy initial evaluation. All patient information is fictional. Some features, including save/resume functionality, are still undergoing testing and refinement.</Typography></Alert><Card><CardContent><Stack spacing={2}><Typography variant="h5">Start a blank evaluation</Typography><Field label="Student name" value={studentName} disabled={busy} onChange={setStudentName}/><Button variant="contained" size="large" onClick={startEvaluation} disabled={busy}>Start Evaluation</Button></Stack></CardContent></Card><Card><CardContent><Stack spacing={2}><Typography variant="h5">Progress note</Typography><Typography color="text.secondary">Create a progress note from a saved initial evaluation. Baseline function and goals carry forward automatically.</Typography><Button variant="contained" color="secondary" size="large" onClick={()=>{setMessage("");setScreen("progress");}}>Start Progress Note</Button></Stack></CardContent></Card><Divider>OR</Divider><Card><CardContent><Stack spacing={2}><Typography variant="h5">Resume an evaluation</Typography><Field label="Resume code" value={resumeCode} disabled={busy} onChange={v=>setResumeCode(v.toUpperCase())}/><Button variant="outlined" size="large" onClick={resumeEvaluation} disabled={busy}>Resume Evaluation</Button></Stack></CardContent></Card>{message&&<Alert severity="error">{message}</Alert>}</Stack></Container>;
 }
