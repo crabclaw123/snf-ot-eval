@@ -46,7 +46,6 @@ export interface ProgressNote {
   planDecision: "Continue POC" | "Modify POC" | "Discharge OT";
   frequency: string;
   duration: string;
-  dischargePlanning: string;
   caregiverEquipmentNeeds: string;
 }
 
@@ -69,7 +68,6 @@ export function createProgressNote(evaluation: Evaluation, resumeCode: string): 
     assessment: "", continuedSkilledNeed: "", planDecision: "Continue POC",
     frequency: evaluation.formData.goalsPlanOfCare.frequency,
     duration: evaluation.formData.goalsPlanOfCare.duration,
-    dischargePlanning: evaluation.formData.goalsPlanOfCare.dischargePlan,
     caregiverEquipmentNeeds: ""
   };
 }
@@ -86,5 +84,5 @@ export function buildSuggestedAssessment(note: ProgressNote, evaluation: Evaluat
   }
   const progress = changes.length ? `Patient demonstrates measurable functional progress since the initial evaluation, including ${changes.slice(0,3).join(", ")}.` : "Patient's current occupational performance was reviewed relative to the initial evaluation.";
   const remaining = note.barriers.trim() ? ` Remaining barriers include ${note.barriers.trim()}.` : "";
-  return `${progress}${remaining} Continued skilled OT is indicated to address remaining occupational performance limitations and maximize safety and independence with daily activities and discharge planning.`;
+  return `${progress}${remaining} Continued skilled OT is indicated to address remaining occupational performance limitations and maximize safety and independence with daily activities.`;
 }
