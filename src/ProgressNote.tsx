@@ -5,7 +5,7 @@ import type { AssistanceLevel, Evaluation, FindingStatus, OTGoal } from "./types
 import { MOVEMENTS } from "./types";
 import type { GoalPlan, GoalProgressStatus, ProgressNote } from "./progressTypes";
 import { createProgressNote } from "./progressTypes";
-import { generateResumeCode, loadEvaluation, saveProgressNote } from "./storage";
+import { generateResumeCode, loadEvaluation, loadProgressNote, saveProgressNote } from "./storage";
 
 const ADLS: [string,string][] = [["eating","Eating"],["grooming","Grooming"],["bathing","Bathing"],["upperBodyDressing","Upper-body dressing"],["lowerBodyDressing","Lower-body dressing"],["toileting","Toileting"],["toiletTransfer","Toilet transfer"],["showerTransfer","Shower transfer"],["bedMobility","Bed mobility"],["transfers","Transfers"],["functionalMobility","Functional mobility"]];
 const LEVELS: string[] = ["Independent","Modified Independent","Supervision","Contact Guard Assist","Minimal Assist","Moderate Assist","Maximal Assist","Dependent","Not Assessed","Not Applicable","Non-ambulatory"];
@@ -113,7 +113,7 @@ function exportProgressNotePdf(note: ProgressNote, evaluation: Evaluation) {
   doc.save(`OT-Progress-Note-${note.sourceEvaluationCode}.pdf`);
 }
 
-export default function ProgressNoteScreen({onExit}:{onExit:()=>void}) {
+export default function ProgressNoteScreen({onExit,mode="new"}:{onExit:()=>void;mode?:"new"|"resume"}) {
   const [evalCode,setEvalCode]=useState("");
   const [evaluation,setEvaluation]=useState<Evaluation|null>(null);
   const [note,setNote]=useState<ProgressNote|null>(null);
@@ -122,6 +122,7 @@ export default function ProgressNoteScreen({onExit}:{onExit:()=>void}) {
   const [busy,setBusy]=useState(false);
 
   async function loadSource() { setBusy(true); setMessage(""); try { const found=await loadEvaluation(evalCode); if(!found){setMessage("No saved initial evaluation was found for that resume code.");return;} const next=createProgressNote(found,generateResumeCode().replace("SNF-","PN-")); setEvaluation(found); setNote(next); setPage("period"); } catch(e){console.error(e);setMessage("Could not load the initial evaluation.");} finally{setBusy(false);} }
+  async function resumeNote() { setBusy(true); setMessage(""); try { const saved=await loadProgressNote(evalCode); if(!saved){setMessage("No saved progress note was found for that PN code.");return;} const source=await loadEvaluation(saved.sourceEvaluationCode); if(!source){setMessage("The source evaluation for this progress note could not be loaded.");return;} setEvaluation(source); setNote(saved); setPage("period"); } catch(e){console.error(e);setMessage("Could not load the progress note.");} finally{setBusy(false);} }
   function patch<K extends keyof ProgressNote>(key:K,value:ProgressNote[K]) { setNote(n=>n?{...n,[key]:value,updatedAt:new Date().toISOString()}:n); }
   function patchGoal(index:number,changes:Partial<ProgressNote["goals"][number]>) { if(!note)return; const goals=note.goals.map((g,i)=>i===index?{...g,...changes}:g); patch("goals",goals); }
   function patchPeriodField(key: PeriodConfirmKey, value: string) { if(!note)return; patch(key,value as never); patch("periodConfirmed",{...(note.periodConfirmed||{}),[key]:false}); }
@@ -134,7 +135,7 @@ export default function ProgressNoteScreen({onExit}:{onExit:()=>void}) {
   const improved = useMemo(()=>{ if(!note||!evaluation)return {} as Record<string,string>; const rank=["Dependent","Maximal Assist","Moderate Assist","Minimal Assist","Contact Guard Assist","Supervision","Modified Independent","Independent"]; return Object.fromEntries(ADLS.map(([k])=>{const b=evaluation.formData.adlStatus.current[k];const c=note.currentADL[k];const bi=rank.indexOf(b);const ci=rank.indexOf(c);return [k,bi>=0&&ci>bi?"Improved":bi>=0&&ci<bi?"Declined":b&&c&&b===c?"Unchanged":""]; })); },[note,evaluation]);
   async function save() { if(!note)return; setBusy(true); try { await saveProgressNote(note); setMessage("Progress note saved."); } catch(e){console.error(e);setMessage("Could not save progress note.");} finally{setBusy(false);} }
 
-  if(!note||!evaluation) return <Container maxWidth="sm" sx={{py:6}}><Stack spacing={3}><Box><Typography variant="h3" fontWeight={800}>OT Progress Note</Typography><Typography color="text.secondary">Start from a saved initial evaluation so baseline function, cognition, ROM, strength, and goals carry forward automatically.</Typography></Box><Card><CardContent><Stack spacing={2}><Typography variant="h5">Load initial evaluation</Typography><Field label="Initial evaluation resume code" value={evalCode} onChange={v=>setEvalCode(v.toUpperCase())}/><Button variant="contained" onClick={loadSource} disabled={busy}>Create Progress Note</Button></Stack></CardContent></Card>{message&&<Alert severity="error">{message}</Alert>}<Button onClick={onExit}>Back to Home</Button></Stack></Container>;
+  if(!note||!evaluation) return <Container maxWidth="sm" sx={{py:6}}><Stack spacing={3}><Box><Typography variant="h3" fontWeight={800}>{mode==="resume"?"Resume OT Progress Note":"OT Progress Note"}</Typography><Typography color="text.secondary">{mode==="resume"?"Enter the PN code from a previously saved progress note.":"Start from a saved initial evaluation so baseline function, cognition, ROM, strength, and goals carry forward automatically."}</Typography></Box><Card><CardContent><Stack spacing={2}><Typography variant="h5">{mode==="resume"?"Load saved progress note":"Load initial evaluation"}</Typography><Field label={mode==="resume"?"Progress note code (PN-...)":"Initial evaluation resume code"} value={evalCode} onChange={v=>setEvalCode(v.toUpperCase())}/><Button variant="contained" onClick={mode==="resume"?resumeNote:loadSource} disabled={busy||!evalCode.trim()}>{mode==="resume"?"Resume Progress Note":"Create Progress Note"}</Button></Stack></CardContent></Card>{message&&<Alert severity="error">{message}</Alert>}<Button onClick={onExit}>Back to Home</Button></Stack></Container>;
 
   const pageIndex=PAGES.findIndex(p=>p[0]===page); const progress=Math.round(((pageIndex+1)/PAGES.length)*100);
   const renderPage = () => {
