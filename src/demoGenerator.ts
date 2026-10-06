@@ -1,5 +1,5 @@
 import type { AssistanceLevel, Evaluation, OTGoal, SectionGGCode } from "./types";
-import { createEmptyFormData } from "./types";
+import { createEmptyFormData, MOVEMENTS } from "./types";
 import { generateResumeCode } from "./storage";
 
 const pick = <T,>(items: T[]): T => items[Math.floor(Math.random() * items.length)];
@@ -11,7 +11,6 @@ const addWeeks = (weeks: number) => {
 };
 
 const names = ["Evelyn Brooks", "Harold Greene", "Martha Reed", "Walter Price", "Dorothy Lane", "Samuel Carter", "Joan Miller", "Franklin Boyd"];
-const assistance: AssistanceLevel[] = ["Supervision", "Contact Guard Assist", "Minimal Assist", "Moderate Assist", "Maximal Assist"];
 
 function functionalGoal(occupation: string, current: AssistanceLevel, target: string, problem: string, weeks: number): OTGoal {
   return {
@@ -163,6 +162,20 @@ const scenarios: Scenario[] = [
   }
 ];
 
+function fillUnspecifiedROMAndStrength(evaluation: Evaluation) {
+  for (const side of ["right", "left"] as const) {
+    for (const movement of MOVEMENTS) {
+      const rom = evaluation.formData.rom[side][movement];
+      if (!rom.status) evaluation.formData.rom[side][movement] = { ...rom, status: "WFL" };
+
+      const strength = evaluation.formData.strength[side][movement];
+      if (!strength.status) evaluation.formData.strength[side][movement] = { ...strength, status: "WFL" };
+    }
+  }
+  if (!evaluation.formData.rom.notes) evaluation.formData.rom.notes = "All upper-extremity ROM not otherwise noted as impaired is within functional limits for observed tasks.";
+  if (!evaluation.formData.strength.notes) evaluation.formData.strength.notes = "All upper-extremity strength not otherwise noted as impaired is within functional limits for observed tasks.";
+}
+
 export function generateDemoEvaluation(studentName = "Demo Tester"): { evaluation: Evaluation; scenario: string } {
   const formData = createEmptyFormData();
   const now = new Date().toISOString();
@@ -189,6 +202,7 @@ export function generateDemoEvaluation(studentName = "Demo Tester"): { evaluatio
   formData.goalsPlanOfCare.dischargePlan = "Anticipate discharge to prior living environment with support level based on progress.";
   const scenario = pick(scenarios);
   scenario.apply(evaluation);
+  fillUnspecifiedROMAndStrength(evaluation);
   formData.goalsPlanOfCare.shortTermGoals = formData.goalsPlanOfCare.goals.filter(g=>g.type==="Short-term").map(g=>g.goalStatement).join("\n");
   formData.goalsPlanOfCare.longTermGoals = formData.goalsPlanOfCare.goals.filter(g=>g.type==="Long-term").map(g=>g.goalStatement).join("\n");
   formData.clinicalAssessment.assessmentSummary = `Demo scenario: ${scenario.label}. Patient demonstrates decline in occupational performance requiring skilled OT to address documented functional limitations and support safe discharge planning.`;
