@@ -5,10 +5,12 @@ import {
   FormControl, FormControlLabel, InputLabel, LinearProgress, MenuItem, Select,
   Stack, TextField, Typography,
 } from "@mui/material";
-import type { AssistanceLevel, Evaluation, EvaluationFormData, FindingStatus, GoalType, OTGoal, SectionGGCode } from "./types";
+import type { AssistanceLevel, Evaluation, EvaluationFormData, FindingStatus, OTGoal, SectionGGCode } from "./types";
 import { createEmptyFormData, normalizeEvaluation, MOVEMENTS } from "./types";
 import { ensureAnonymousAuth, generateResumeCode, getLastCode, loadEvaluation, saveEvaluation } from "./storage";
 import ProgressNoteScreen from "./ProgressNote";
+import GoalBuilderDialog from "./GoalBuilderDialog";
+import { MMT_LEVELS, formatSourceFinding, parseFindingContext } from "./goalBuilderLogic";
 
 const PAGES = [
   ["patient", "Patient / Referral"],
@@ -32,7 +34,6 @@ const ASSISTANCE_OPTIONS: AssistanceLevel[] = [
   "Not Assessed", "Not Applicable",
 ];
 const FINDING_OPTIONS: FindingStatus[] = ["WNL", "WFL", "Impaired", "Not Assessed"];
-const PRECAUTIONS = ["Fall risk", "Hip precautions", "Spinal precautions", "Aspiration precautions", "Contact precautions", "Seizure precautions", "Skin / wound precautions", "Other"];
 const INTERVENTIONS = ["ADL retraining", "Functional mobility / transfer training", "Therapeutic exercise", "Therapeutic activity", "Balance training", "Cognitive / compensatory strategy training", "Neuromuscular re-education", "Energy conservation", "Adaptive equipment training", "Caregiver education", "Discharge planning"];
 const GG_OPTIONS: { code: SectionGGCode; label: string }[] = [
   { code: "06", label: "06 — Independent" }, { code: "05", label: "05 — Setup or clean-up assistance" },
@@ -40,145 +41,11 @@ const GG_OPTIONS: { code: SectionGGCode; label: string }[] = [
   { code: "02", label: "02 — Substantial/maximal assistance" }, { code: "01", label: "01 — Dependent" },
   { code: "09", label: "09 — Not applicable / not attempted" }, { code: "88", label: "88 — Not attempted due to medical/safety concern" },
 ];
-const GOAL_TYPES: GoalType[] = ["Short-term", "Long-term"];
-const GOAL_TIMEFRAMES = ["1 week", "2 weeks", "3 weeks", "4 weeks", "6 weeks", "8 weeks", "By discharge"];
-const MMT_LEVELS = ["0", "1", "2-", "2", "2+", "3-", "3", "3+", "4-", "4", "4+", "5"];
-const GOAL_WIZARD_STEPS = [
-  { key: "occupation", title: "1. Occupation / activity", help: "Choose the meaningful occupation you are addressing." },
-  { key: "target", title: "2. Target performance level", help: "Choose the performance target. ROM and strength goals use the documented finding to suggest realistic measurable targets." },
-  { key: "performanceProblem", title: "3. Functional performance problem", help: "Choose the occupational reason the goal is needed." },
-  { key: "condition", title: "4. Condition / context", help: "Choose the conditions under which the patient will perform." },
-  { key: "measurableCriterion", title: "5. Measurable criterion", help: "Choose how successful performance will be measured." },
-  { key: "timeframe", title: "6. Timeframe & target date", help: "Choose the expected timeframe and set the calendar date the goal should be met by." },
-] as const;
-
-const GOAL_PHRASES: Record<string, string[]> = {
-  performanceProblem: [
-    "improve independence with daily self-care",
-    "increase safety during functional mobility",
-    "improve independence with toileting",
-    "improve independence with dressing",
-    "improve independence with bathing",
-    "support safe discharge to the prior living environment",
-    "reduce caregiver burden during daily routines",
-    "improve participation in a meaningful daily routine",
-  ],
-  condition: [
-    "with no more than 1 verbal cue",
-    "with no more than 2 verbal cues",
-    "using the least restrictive assistive device",
-    "using adaptive equipment as needed",
-    "with appropriate safety awareness",
-    "with setup assistance only",
-    "without loss of balance",
-    "while maintaining prescribed precautions",
-    "with supervision for safety",
-  ],
-  measurableCriterion: [
-    "in 4 out of 5 observed opportunities",
-    "in 3 consecutive treatment sessions",
-    "with 90% task completion",
-    "with no more than minimal cueing",
-    "with no more than supervision",
-    "without physical assistance",
-    "with consistent carryover across sessions",
-  ],
-};
 
 function blankGoal(): OTGoal {
   return { id: "", type: "Short-term", occupation: "", plof: "", current: "", target: "", performanceProblem: "", condition: "", measurableCriterion: "", timeframe: "", targetDate: "", goalStatement: "" };
 }
-function calculateTargetDate(baseDate: string, timeframe: string): string {
-  const weeks = Number(timeframe.match(/^(\d+) week/)?.[1] || 0);
-  if (!baseDate || !weeks) return "";
-  const date = new Date(`${baseDate}T12:00:00`);
-  if (Number.isNaN(date.getTime())) return "";
-  date.setDate(date.getDate() + weeks * 7);
-  return date.toISOString().slice(0,10);
-}
-function formatSourceFinding(goal: OTGoal): string {
-  if (!goal.sourceType || goal.sourceType === "Functional") return "";
-  const side = goal.sourceSide === "right" ? "Right" : goal.sourceSide === "left" ? "Left" : "";
-  const metric = goal.sourceMetric || (goal.sourceType === "Strength" ? "MMT" : "AROM");
-  const unit = goal.sourceType === "ROM" && goal.sourceBaseline && !goal.sourceBaseline.includes("°") ? "°" : "";
-  return `${side} ${goal.sourceMovement || "finding"} ${metric}: ${goal.sourceBaseline || "not documented"}${unit}`.trim();
-}
-function parseFindingContext(context: string): Partial<OTGoal> {
-  const match = context.match(/^(Right|Left) (.+?) — Impaired; (.+)$/);
-  if (!match) return {};
-  const side = match[1].toLowerCase() as "right" | "left";
-  const movement = match[2];
-  const details = match[3];
-  if (details.includes("MMT:")) {
-    const baseline = details.match(/MMT:\s*([^;]+)/)?.[1]?.trim();
-    if (!baseline || baseline === "not documented") return { sourceType: "Strength", sourceSide: side, sourceMovement: movement, sourceMetric: "MMT" };
-    return { sourceType: "Strength", sourceSide: side, sourceMovement: movement, sourceMetric: "MMT", sourceBaseline: baseline, measurableCriterion: "as measured by manual muscle testing" };
-  }
-  const arom = details.match(/AROM:\s*([^°;]+)/)?.[1]?.trim();
-  const prom = details.match(/PROM:\s*([^°;]+)/)?.[1]?.trim();
-  const useArom = arom && arom !== "not documented";
-  const baseline = useArom ? arom : prom && prom !== "not documented" ? prom : "";
-  const metric = useArom ? "AROM" : "PROM";
-  return { sourceType: "ROM", sourceSide: side, sourceMovement: movement, sourceMetric: metric, sourceBaseline: baseline || undefined, measurableCriterion: "as measured by goniometry" };
-}
-function smartTargetOptions(goal: OTGoal): string[] {
-  if (goal.sourceType === "ROM") {
-    const n = Number(String(goal.sourceBaseline || "").replace(/[^0-9.-]/g, ""));
-    const numeric = Number.isFinite(n) && n >= 0 ? [10, 15, 20].map(delta => `${Math.round(n + delta)}°`) : [];
-    return [...numeric, "increase by 10°", "increase by 15°", "functional ROM sufficient for the selected occupation"];
-  }
-  if (goal.sourceType === "Strength") {
-    const current = String(goal.sourceBaseline || "").replace("/5", "").trim();
-    const idx = MMT_LEVELS.indexOf(current);
-    const next = idx >= 0 ? MMT_LEVELS.slice(idx + 1, Math.min(idx + 5, MMT_LEVELS.length)).map(x => `${x}/5`) : [];
-    return [...next, "improve by one MMT grade", "functional strength sufficient for the selected occupation"];
-  }
-  return ASSISTANCE_OPTIONS.filter(x => x !== "" && x !== "Not Assessed" && x !== "Not Applicable");
-}
-function smartProblemOptions(goal: OTGoal): string[] {
-  if (!goal.sourceType || goal.sourceType === "Functional") return GOAL_PHRASES.performanceProblem;
-  const occupation = ADLS.find(([key]) => key === goal.occupation)?.[1]?.toLowerCase() || goal.occupation.toLowerCase() || "the selected occupation";
-  const side = goal.sourceSide === "right" ? "right" : goal.sourceSide === "left" ? "left" : "involved";
-  if (goal.sourceType === "ROM") {
-    return [
-      `improve ${side} upper-extremity reach required for ${occupation}`,
-      `improve functional range needed to complete ${occupation}`,
-      `reduce physical assistance required during ${occupation}`,
-      `improve access to body or environmental targets during ${occupation}`,
-      "improve independence with daily self-care",
-    ];
-  }
-  return [
-    `improve ${side} upper-extremity strength required for ${occupation}`,
-    `improve ability to lift, support, or control the arm during ${occupation}`,
-    `reduce physical assistance required during ${occupation}`,
-    `improve sustained upper-extremity use during ${occupation}`,
-    "improve independence with daily self-care",
-  ];
-}
-function smartMeasureOptions(goal: OTGoal): string[] {
-  if (goal.sourceType === "ROM") return ["as measured by goniometry", "without increased pain", "with consistent performance across 2 treatment sessions", "while maintaining prescribed precautions"];
-  if (goal.sourceType === "Strength") return ["as measured by manual muscle testing", "with consistent performance across 2 treatment sessions", "without compensatory movement", "while maintaining prescribed precautions"];
-  return GOAL_PHRASES.measurableCriterion;
-}
-function buildGoalStatement(goal: OTGoal): string {
-  if (!goal.occupation || !goal.target) return "";
-  const problem = goal.performanceProblem.trim() || "improve occupational performance";
-  const condition = goal.condition.trim() ? ` while ${goal.condition.trim()}` : "";
-  const measure = goal.measurableCriterion.trim() ? `, ${goal.measurableCriterion.trim()}` : "";
-  const timeframe = goal.timeframe ? ` within ${goal.timeframe}` : "";
-  const targetDate = goal.targetDate ? ` (target date: ${goal.targetDate})` : "";
-  if (goal.sourceType === "ROM" || goal.sourceType === "Strength") {
-    const side = goal.sourceSide === "right" ? "right" : goal.sourceSide === "left" ? "left" : "involved";
-    const movement = goal.sourceMovement || "upper-extremity movement";
-    const metric = goal.sourceMetric || (goal.sourceType === "Strength" ? "MMT" : "AROM");
-    const baselineUnit = goal.sourceType === "ROM" && goal.sourceBaseline && !goal.sourceBaseline.includes("°") ? "°" : goal.sourceType === "Strength" && goal.sourceBaseline && !goal.sourceBaseline.includes("/5") ? "/5" : "";
-    const verb = goal.sourceType === "ROM" ? "increase" : "improve";
-    return `Patient will ${verb} ${side} ${movement.toLowerCase()} ${metric} from ${goal.sourceBaseline || "current documented level"}${baselineUnit} to ${goal.target}${condition} in order to ${problem}${measure}${timeframe}${targetDate}.`;
-  }
-  const measurePhrase = goal.measurableCriterion.trim() ? ` as demonstrated by ${goal.measurableCriterion.trim()}` : "";
-  return `Patient will improve ${goal.occupation.toLowerCase()} from ${goal.current || "current documented level"} to ${goal.target.toLowerCase()}${condition} in order to ${problem}${measurePhrase}${timeframe}${targetDate}.`;
-}
+
 const ADLS: [string, string][] = [
   ["eating", "Eating"], ["grooming", "Grooming"], ["bathing", "Bathing"], ["upperBodyDressing", "Upper-body dressing"],
   ["lowerBodyDressing", "Lower-body dressing"], ["toileting", "Toileting"], ["toiletTransfer", "Toilet transfer"],
@@ -652,62 +519,67 @@ export default function App() {
       case "assessment": return <PageCard title="Clinical Assessment / OT Analysis" help="Synthesize the evaluation findings into one clinical narrative. Include strengths, impairments, activity limitations, participation restrictions, occupational performance problems, and why skilled OT is indicated."><Field label="Assessment / Clinical Impression" value={f.clinicalAssessment.assessmentSummary} disabled={!!disabled} onChange={v=>updateSection("clinicalAssessment","assessmentSummary",v)} multiline minRows={16} placeholder="Synthesize the relevant findings and explain their impact on occupational performance and the need for skilled OT." /><SelectField label="Rehabilitation prognosis" value={f.clinicalAssessment.prognosis} options={["Good","Fair","Guarded","Unable to determine"]} disabled={!!disabled} onChange={v=>updateSection("clinicalAssessment","prognosis",v)} /></PageCard>;
       case "goals": {
         const goals = f.goalsPlanOfCare.goals;
-        const baseline: { plof: AssistanceLevel; current: AssistanceLevel } = goalDraft.occupation ? { plof: f.adlStatus.plof[goalDraft.occupation] ?? "", current: f.adlStatus.current[goalDraft.occupation] ?? "" } : { plof: "", current: "" };
-        const draftWithBaseline: OTGoal = { ...goalDraft, plof: goalDraft.plof || baseline.plof, current: goalDraft.current || baseline.current };
-        const preview = buildGoalStatement(draftWithBaseline);
-        const wizardStep = GOAL_WIZARD_STEPS[goalWizardStep];
-        const optionValues = wizardStep.key === "occupation" ? ADLS.map(([key,label]) => ({ value:key,label })) : wizardStep.key === "target" ? smartTargetOptions(draftWithBaseline).map(x => ({value:x,label:x})) : wizardStep.key === "performanceProblem" ? smartProblemOptions(draftWithBaseline).map(x => ({value:x,label:x})) : wizardStep.key === "measurableCriterion" ? smartMeasureOptions(draftWithBaseline).map(x => ({value:x,label:x})) : wizardStep.key === "timeframe" ? GOAL_TIMEFRAMES.map(x => ({value:x,label:x})) : GOAL_PHRASES.condition.map(x => ({value:x,label:x}));
-
-        function chooseWizardValue(value: string) {
-          setGoalDraft(g => {
-            const updates: Partial<OTGoal> = { [wizardStep.key]: value };
-            if (wizardStep.key === "timeframe") updates.targetDate = calculateTargetDate(new Date().toISOString().slice(0,10), value);
-            return { ...g, ...updates };
-          });
-        }
-        function saveGoal() {
-          const finalGoal: OTGoal = { ...draftWithBaseline, id: goalDraft.id || crypto.randomUUID(), targetDate: goalDraft.targetDate || "", goalStatement: goalDraft.goalStatement.trim() || preview };
-          if (!finalGoal.occupation.trim() || !finalGoal.target.trim() || !finalGoal.timeframe.trim() || !finalGoal.targetDate?.trim() || !finalGoal.performanceProblem.trim()) { setMessage("Complete the occupation, target, functional problem, timeframe, and target date before saving the goal."); return; }
-          const nextGoals = goalDraft.id ? goals.map(g => g.id === goalDraft.id ? finalGoal : g) : [...goals, finalGoal];
-          updateGoals(nextGoals); setGoalDraft(blankGoal()); setGoalWizardStep(0); setGoalWizardOpen(false); setMessage("");
-        }
-        function editGoal(goal: OTGoal) {
-          const generatedStatement = buildGoalStatement(goal);
-          openGoalBuilder({ ...goal, targetDate: goal.targetDate || "", goalStatement: goal.goalStatement.trim() === generatedStatement.trim() ? "" : goal.goalStatement }, "");
-        }
-        function removeGoal(id: string) { updateGoals(goals.filter(g => g.id !== id)); }
         const isEditing = Boolean(goalDraft.id);
-        const sourceLabel = formatSourceFinding(draftWithBaseline);
 
-        return <PageCard title="Goals" help="Build measurable, occupation-based goals from the patient's documented baseline. ROM and strength goals now use the exact documented finding to suggest measurable targets and clinically relevant phrases.">
-          <Alert severity="info">When a goal is started from an impaired ROM or strength finding, the builder carries that measurement into the goal, asks which occupation it limits, and then suggests finding-specific targets and measurement language. Suggestions are educational prompts; the student still chooses the clinically appropriate target.</Alert>
+        function saveGoal(finalDraft: OTGoal) {
+          const finalGoal: OTGoal = {
+            ...finalDraft,
+            id: goalDraft.id || finalDraft.id || crypto.randomUUID(),
+            targetDate: finalDraft.targetDate || "",
+          };
+          if (!finalGoal.occupation.trim() || !finalGoal.target.trim() || !finalGoal.performanceProblem.trim() || !finalGoal.timeframe.trim() || !finalGoal.targetDate?.trim() || !finalGoal.goalStatement.trim()) {
+            setMessage("Complete the occupation, functional purpose, target, timeframe, target date, and final goal statement before saving the goal.");
+            return;
+          }
+          const nextGoals = goalDraft.id ? goals.map(goal => goal.id === goalDraft.id ? finalGoal : goal) : [...goals, finalGoal];
+          updateGoals(nextGoals);
+          setGoalDraft(blankGoal());
+          setGoalWizardStep(0);
+          setGoalWizardOpen(false);
+          setMessage("");
+        }
+
+        function editGoal(goal: OTGoal) {
+          openGoalBuilder({ ...goal, targetDate: goal.targetDate || "" }, "");
+        }
+
+        function removeGoal(id: string) {
+          updateGoals(goals.filter(goal => goal.id !== id));
+        }
+
+        function closeGoalBuilder() {
+          setGoalWizardOpen(false);
+          setGoalDraft(blankGoal());
+          setGoalWizardStep(0);
+          setGoalContext("");
+        }
+
+        return <PageCard title="Goals" help="Build measurable, occupation-based goals from the patient's documented baseline. The guided builder organizes the clinical reasoning first, then produces clean wording that remains fully editable.">
+          <Alert severity="info">The goal builder is optional support, not a restriction. Students can use suggested phrases, enter their own wording at every step, and freely edit the complete goal before saving. ROM and strength goals remain linked to their documented source finding for future progress-note comparison.</Alert>
           <Button variant="contained" size="large" onClick={()=>openGoalBuilder()} disabled={!!disabled}>Open Guided Goal Builder</Button>
-          <Dialog open={goalWizardOpen} onClose={()=>{setGoalWizardOpen(false);setGoalDraft(blankGoal());setGoalWizardStep(0);}} fullWidth maxWidth="md">
-            <DialogTitle>{isEditing ? "Edit an OT Goal" : "Build an OT Goal"}</DialogTitle>
-            <DialogContent dividers><Stack spacing={2}>
-              <Typography color="text.secondary">Step {goalWizardStep + 1} of {GOAL_WIZARD_STEPS.length}</Typography><Typography variant="h6">{wizardStep.title}</Typography><Typography color="text.secondary">{wizardStep.help}</Typography>
-              {goalContext && <Alert severity="info">Started from: <strong>{goalContext}</strong>{!goalDraft.occupation && " — first connect this impairment to an occupation."}</Alert>}
-              {sourceLabel && <Chip label={`Source finding: ${sourceLabel}`} color="secondary" sx={{alignSelf:"flex-start"}}/>}
-              {wizardStep.key === "occupation" && <Stack spacing={2}><Stack spacing={1}>{optionValues.map(option => <Button key={option.value} variant={goalDraft.occupation === option.value ? "contained" : "outlined"} onClick={()=>chooseWizardValue(option.value)} sx={{justifyContent:"flex-start",textTransform:"none",py:1.2}}>{option.label}</Button>)}</Stack><Field label="Or enter your own occupation / activity" value={goalDraft.occupation} disabled={!!disabled} onChange={v=>setGoalDraft(g=>({...g,occupation:v}))} placeholder="Example: Meal preparation, medication management, or returning to a hobby" />{goalDraft.occupation && <Stack spacing={1.5}><Typography fontWeight={700}>Functional baseline for this occupation</Typography><SelectField label="Prior level of function (PLOF)" value={goalDraft.plof} options={ASSISTANCE_OPTIONS.filter(x=>x!=="" && x!=="Not Assessed" && x!=="Not Applicable")} disabled={!!disabled} onChange={v=>setGoalDraft(g=>({...g,plof:v as AssistanceLevel}))} /><SelectField label="Current level of function" value={goalDraft.current} options={ASSISTANCE_OPTIONS.filter(x=>x!=="" && x!=="Not Assessed" && x!=="Not Applicable")} disabled={!!disabled} onChange={v=>setGoalDraft(g=>({...g,current:v as AssistanceLevel}))} /></Stack>}</Stack>}
-              {wizardStep.key !== "occupation" && <Stack spacing={1}>{optionValues.map(option => <Button key={option.value} variant={String(goalDraft[wizardStep.key]) === option.value ? "contained" : "outlined"} onClick={()=>chooseWizardValue(option.value)} sx={{justifyContent:"flex-start",textTransform:"none",py:1.4}}>{option.label}</Button>)}</Stack>}
-              {(wizardStep.key === "performanceProblem" || wizardStep.key === "condition" || wizardStep.key === "measurableCriterion") && <Field label="Or enter your own phrase" value={String(goalDraft[wizardStep.key])} disabled={!!disabled} onChange={v=>setGoalDraft(g=>({...g,[wizardStep.key]:v}))} multiline minRows={2} />}
-              {wizardStep.key === "target" && <Field label={goalDraft.sourceType === "ROM" ? "Or enter your own ROM target" : goalDraft.sourceType === "Strength" ? "Or enter your own strength target" : "Or enter your own target performance level"} value={goalDraft.target} disabled={!!disabled} onChange={v=>setGoalDraft(g=>({...g,target:v}))} placeholder={goalDraft.sourceType === "ROM" ? "Example: 110° or functional ROM for dressing" : goalDraft.sourceType === "Strength" ? "Example: 4-/5 or improve by one MMT grade" : "Example: setup assistance or independent with adaptive equipment"} />}
-              {wizardStep.key === "timeframe" && <Stack spacing={2}><Field label="Or enter your own timeframe" value={goalDraft.timeframe} disabled={!!disabled} onChange={v=>setGoalDraft(g=>({...g,timeframe:v}))} placeholder="Example: within 10 treatment sessions" /><Field type="date" label="Target date" value={goalDraft.targetDate || ""} disabled={!!disabled} onChange={v=>setGoalDraft(g=>({...g,targetDate:v}))} /></Stack>}
-              {wizardStep.key === "occupation" && goalDraft.occupation && <Typography color="text.secondary">Selected occupation: {ADLS.find(([key])=>key===goalDraft.occupation)?.[1] || goalDraft.occupation}</Typography>}
-              {wizardStep.key === "target" && goalDraft.target && <Typography color="text.secondary">Target: {goalDraft.target}</Typography>}
-              {wizardStep.key === "condition" && goalDraft.condition && <Typography color="text.secondary">Condition: {goalDraft.condition}</Typography>}
-              {wizardStep.key === "measurableCriterion" && goalDraft.measurableCriterion && <Typography color="text.secondary">Measurement: {goalDraft.measurableCriterion}</Typography>}
-              {wizardStep.key === "timeframe" && goalDraft.timeframe && <Typography color="text.secondary">Timeframe: {goalDraft.timeframe}{goalDraft.targetDate ? ` · Target date: ${goalDraft.targetDate}` : ""}</Typography>}
-              {goalWizardStep === GOAL_WIZARD_STEPS.length - 1 && <Stack spacing={2}>{preview && <Card variant="outlined"><CardContent><Typography fontWeight={700}>Generated goal preview</Typography><Typography sx={{mt:1}}>{preview}</Typography></CardContent></Card>}<Field label="Or write your complete goal statement" value={goalDraft.goalStatement} disabled={!!disabled} onChange={v=>setGoalDraft(g=>({...g,goalStatement:v}))} multiline minRows={5} placeholder="Write the full goal in your own clinical wording. If you leave this blank, the generated goal above will be used." /></Stack>}
-            </Stack></DialogContent>
-            <DialogActions><Button onClick={()=>setGoalWizardStep(Math.max(0,goalWizardStep-1))} disabled={goalWizardStep===0}>Back</Button>{goalWizardStep < GOAL_WIZARD_STEPS.length - 1 ? <Button variant="contained" onClick={()=>setGoalWizardStep(goalWizardStep+1)} disabled={!goalDraft[wizardStep.key]}>Next</Button> : <Button variant="contained" onClick={saveGoal} disabled={!goalDraft.occupation || !goalDraft.target || !goalDraft.performanceProblem.trim() || !goalDraft.timeframe || !goalDraft.targetDate}>{isEditing ? "Save Changes" : "Add Goal"}</Button>}</DialogActions>
-          </Dialog>
+
+          <GoalBuilderDialog
+            open={goalWizardOpen}
+            disabled={!!disabled}
+            draft={goalDraft}
+            step={goalWizardStep}
+            context={goalContext}
+            evaluationDate={f.patientInfo.evaluationDate}
+            adlPlof={f.adlStatus.plof}
+            adlCurrent={f.adlStatus.current}
+            isEditing={isEditing}
+            onDraftChange={setGoalDraft}
+            onStepChange={setGoalWizardStep}
+            onClose={closeGoalBuilder}
+            onSave={saveGoal}
+          />
+
           <Divider /><Typography variant="h6">Goals in this evaluation</Typography>
           {goals.length === 0 ? <Typography color="text.secondary">No goals added yet.</Typography> : <Stack spacing={1.5}>{goals.map((goal,index)=><Card variant="outlined" key={goal.id || index}><CardContent><Stack spacing={1}><Stack direction="row" justifyContent="space-between" alignItems="center"><Typography fontWeight={700}>{goal.type} Goal {index+1}</Typography><Stack direction="row" spacing={1}><Button size="small" onClick={()=>editGoal(goal)} disabled={!!disabled}>Edit</Button><Button color="error" size="small" onClick={()=>removeGoal(goal.id)} disabled={!!disabled}>Remove</Button></Stack></Stack><Typography>{goal.goalStatement}</Typography>{goal.sourceType && goal.sourceType !== "Functional" && <Typography variant="body2" color="secondary.main">Source: {formatSourceFinding(goal)}</Typography>}<Typography variant="body2" color="text.secondary">{ADLS.find(([key])=>key===goal.occupation)?.[1] || goal.occupation} · Current function: {goal.current || "Not documented"} · Target: {goal.target || "Not documented"} · {goal.timeframe || "No timeframe"} · Target date: {goal.targetDate || "Not documented"}</Typography></Stack></CardContent></Card>)}</Stack>}
         </PageCard>;
       }
       case "plan": return <PageCard title="Plan of Care"><Stack spacing={2}><Stack direction={{xs:"column",sm:"row"}} spacing={1.5}><Field label="Frequency" value={f.goalsPlanOfCare.frequency} disabled={!!disabled} onChange={v=>updateSection("goalsPlanOfCare","frequency",v)} /><Field label="Duration" value={f.goalsPlanOfCare.duration} disabled={!!disabled} onChange={v=>updateSection("goalsPlanOfCare","duration",v)} /></Stack><Typography fontWeight={600}>Planned skilled interventions</Typography>{INTERVENTIONS.map(i=><FormControlLabel key={i} control={<Checkbox checked={f.goalsPlanOfCare.treatmentInterventions.includes(i)} disabled={!!disabled} onChange={e=>updateSection("goalsPlanOfCare","treatmentInterventions",e.target.checked?[...f.goalsPlanOfCare.treatmentInterventions,i]:f.goalsPlanOfCare.treatmentInterventions.filter(x=>x!==i))}/>} label={i}/>)}<Field label="Patient / caregiver education" value={f.goalsPlanOfCare.patientCaregiverEducation} disabled={!!disabled} onChange={v=>updateSection("goalsPlanOfCare","patientCaregiverEducation",v)} multiline minRows={6}/><Field label="Discharge planning / anticipated disposition" value={f.goalsPlanOfCare.dischargePlan} disabled={!!disabled} onChange={v=>updateSection("goalsPlanOfCare","dischargePlan",v)} multiline minRows={6}/></Stack></PageCard>;
-      case "gg": return <PageCard title="Section GG" help="Educational reference only. This is not an official MDS or billing form."><Stack spacing={1.5}>{([["eating","Eating"],["oralHygiene","Oral hygiene"],["toiletingHygiene","Toileting hygiene"],["showerBathing","Shower / bathing"],["upperBodyDressing","Upper-body dressing"],["lowerBodyDressing","Lower-body dressing"],["footwear","Footwear"],["rolling","Rolling"],["sitToLying","Sit to lying"],["lyingToSitting","Lying to sitting"],["sitToStand","Sit to stand"],["chairBedTransfer","Chair / bed transfer"],["toiletTransfer","Toilet transfer"],["walking10Feet","Walking 10 feet"],["walking50FeetTurn","Walking 50 feet with turns"],["stairs","Stairs"]] as const).map(([key,label])=><SelectField key={key} label={label} value={f.sectionGG[key]} options={GG_OPTIONS.map(x=>x.label)} disabled={!!disabled} onChange={v=>updateSection("sectionGG",key,GG_OPTIONS.find(x=>x.label===v)?.code ?? "")}/>)}<Field label="Section GG notes / reasoning" value={f.sectionGG.ggNotes} disabled={!!disabled} onChange={v=>updateSection("sectionGG","ggNotes",v)} multiline minRows={6}/></Stack></PageCard>;
+      case "gg": return <PageCard title="Section GG" help="Educational reference only. This is not an official MDS or billing form."><Stack spacing={1.5}>{([["eating","Eating"],["oralHygiene","Oral hygiene"],["toiletingHygiene","Toileting hygiene"],["showerBathing","Shower / bathing"],["upperBodyDressing","Upper-body dressing"],["lowerBodyDressing","Lower-body dressing"],["footwear","Footwear"],["rolling","Rolling"],["sitToLying","Sit to lying"],["lyingToSitting","Lying to sitting"],["sitToStand","Sit to stand"],["chairBedTransfer","Chair / bed transfer"],["toiletTransfer","Toilet transfer"],["walking10Feet","Walking 10 feet with turns"],["stairs","Stairs"]] as const).map(([key,label])=><SelectField key={key} label={label} value={f.sectionGG[key]} options={GG_OPTIONS.map(x=>x.label)} disabled={!!disabled} onChange={v=>updateSection("sectionGG",key,GG_OPTIONS.find(x=>x.label===v)?.code ?? "")}/>)}<Field label="Section GG notes / reasoning" value={f.sectionGG.ggNotes} disabled={!!disabled} onChange={v=>updateSection("sectionGG","ggNotes",v)} multiline minRows={6}/></Stack></PageCard>;
       case "review": return <PageCard title="Review / Attestation">{evaluation.status === "submitted" ? <Alert severity="success"><Typography fontWeight={700}>Evaluation submitted</Typography><Typography>This evaluation is now read-only. You can review the completed evaluation using the navigation.</Typography></Alert> : <Alert severity="info">Review your work before submitting. Once submitted, this evaluation becomes read-only.</Alert>}<Typography>Progress: {progress}%</Typography><LinearProgress variant="determinate" value={progress}/><Field label="Student name" value={f.signatureAttestation.studentName} disabled={!!disabled} onChange={v=>updateSection("signatureAttestation","studentName",v)}/><Field label="Credentials / role" value={f.signatureAttestation.credentials} disabled={!!disabled} onChange={v=>updateSection("signatureAttestation","credentials",v)}/><FormControlLabel control={<Checkbox checked={f.signatureAttestation.attestation} disabled={!!disabled} onChange={e=>updateSection("signatureAttestation","attestation",e.target.checked)}/>} label="I attest that this is my educational evaluation work based on a fictional case and that I believe that the Detroit Lions will win the superbowl" />{evaluation.status === "submitted" ? <Stack spacing={1.5}><Typography variant="body2" color="text.secondary">Resume code: {evaluation.resumeCode}</Typography><Button variant="outlined" onClick={startNewEvaluation}>Start New Evaluation</Button></Stack> : <Button variant="contained" color="primary" size="large" onClick={()=>{if(!f.signatureAttestation.attestation){setMessage("Complete the attestation before submitting.");return;}setSubmitDialogOpen(true);}} disabled={!!disabled}>Submit Evaluation</Button>}</PageCard>;
     }
   }
@@ -722,5 +594,5 @@ export default function App() {
     <Dialog open={submitDialogOpen} onClose={() => !busy && setSubmitDialogOpen(false)} maxWidth="sm" fullWidth><DialogTitle>Submit Evaluation?</DialogTitle><DialogContent dividers><Stack spacing={2}><Typography>Once you submit this evaluation, it will be saved to Firebase and become read-only.</Typography><Typography color="text.secondary">You will still be able to review the completed evaluation, but you will not be able to edit it.</Typography><Alert severity="warning">Make sure you have reviewed your documentation before submitting.</Alert></Stack></DialogContent><DialogActions><Button onClick={() => setSubmitDialogOpen(false)} disabled={busy}>Cancel</Button><Button variant="contained" onClick={submitEvaluation} disabled={busy}>Submit Evaluation</Button></DialogActions></Dialog>
   </Stack></Container>;
 
-  return <Container maxWidth="sm" sx={{py:8}}><Stack spacing={3}><Box><Typography variant="h3" fontWeight={800}>SNF OT Evaluation</Typography><Typography variant="h6" color="text.secondary">Interactive teaching and practice tool for SNF OT initial evaluations.</Typography></Box><Alert severity="info"><Typography fontWeight={700}>Educational Demonstration</Typography><Typography variant="body2" sx={{mt:0.5}}>This is an early prototype designed to demonstrate the workflow and documentation structure of a skilled nursing facility occupational therapy initial evaluation. All patient information is fictional. Some features, including save/resume functionality, are still undergoing testing and refinement.</Typography></Alert><Card><CardContent><Stack spacing={2}><Typography variant="h5">Start a blank evaluation</Typography><Field label="Student name" value={studentName} disabled={busy} onChange={setStudentName}/><Button variant="contained" size="large" onClick={startEvaluation} disabled={busy}>Start Evaluation</Button></Stack></CardContent></Card><Card><CardContent><Stack spacing={2}><Typography variant="h5">Progress note</Typography><Typography color="text.secondary">Create a progress note from a saved initial evaluation, or resume a progress note draft using its PN code.</Typography><Stack direction={{xs:"column",sm:"row"}} spacing={1}><Button fullWidth variant="contained" color="secondary" size="large" onClick={()=>{setMessage("");setScreen("progress");}}>Start Progress Note</Button><Button fullWidth variant="outlined" color="secondary" size="large" onClick={()=>{setMessage("");setScreen("progressResume");}}>Resume Progress Note</Button></Stack></Stack></CardContent></Card><Divider>OR</Divider><Card><CardContent><Stack spacing={2}><Typography variant="h5">Resume an evaluation</Typography><Field label="Resume code" value={resumeCode} disabled={busy} onChange={v=>setResumeCode(v.toUpperCase())}/><Button variant="outlined" size="large" onClick={resumeEvaluation} disabled={busy}>Resume Evaluation</Button></Stack></CardContent></Card>{message&&<Alert severity="error">{message}</Alert>}</Stack></Container>;
+  return <Container maxWidth="sm" sx={{py:8}}><Stack spacing={3}><Box><Typography variant="h3" fontWeight={800}>SNF OT Evaluation</Typography><Typography variant="h6" color="text.secondary">Interactive teaching and practice tool for SNF OT initial evaluations.</Typography></Box><Alert severity="info"><Typography fontWeight={700}>Educational Demonstration</Typography><Typography variant="body2" sx={{mt:0.5}}>This is an early prototype designed to demonstrate the workflow and documentation structure of a skilled nursing facility occupational therapy initial evaluation. All patient information is fictional. Some features, including save/resume functionality, are still undergoing testing and refinement.</Typography></Alert><Card><CardContent><Stack spacing={2}><Typography variant="h5">Start a blank evaluation</Typography><Field label="Student name" value={studentName} disabled={busy} onChange={setStudentName}/><Button variant="contained" size="large" onClick={startEvaluation} disabled={busy}>Start Evaluation</Button></Stack></CardContent></Card><Card><CardContent><Stack spacing={2}><Typography variant="h5">Progress note</Typography><Typography color="text.secondary">Create a progress note from a saved initial evaluation, or resume the latest saved progress note using the same case / evaluation code.</Typography><Stack direction={{xs:"column",sm:"row"}} spacing={1}><Button fullWidth variant="contained" color="secondary" size="large" onClick={()=>{setMessage("");setScreen("progress");}}>Start Progress Note</Button><Button fullWidth variant="outlined" color="secondary" size="large" onClick={()=>{setMessage("");setScreen("progressResume");}}>Resume Progress Note</Button></Stack></Stack></CardContent></Card><Divider>OR</Divider><Card><CardContent><Stack spacing={2}><Typography variant="h5">Resume an evaluation</Typography><Field label="Resume code" value={resumeCode} disabled={busy} onChange={v=>setResumeCode(v.toUpperCase())}/><Button variant="outlined" size="large" onClick={resumeEvaluation} disabled={busy}>Resume Evaluation</Button></Stack></CardContent></Card>{message&&<Alert severity="error">{message}</Alert>}</Stack></Container>;
 }
