@@ -97,9 +97,37 @@ export function getLastCode(): string | null {
 export async function saveProgressNote(note: ProgressNote): Promise<void> {
   if (IS_E2E_TEST) {
     localStorage.setItem(PREFIX + "progress:" + note.resumeCode, JSON.stringify(note));
+    localStorage.setItem(PREFIX + "last-progress-code", note.resumeCode);
     return;
   }
   await ensureAnonymousAuth();
   await setDoc(doc(db, "progressNotes", note.resumeCode), note);
   localStorage.setItem(PREFIX + "progress:" + note.resumeCode, JSON.stringify(note));
+  localStorage.setItem(PREFIX + "last-progress-code", note.resumeCode);
+}
+
+export async function loadProgressNote(code: string): Promise<ProgressNote | null> {
+  const normalizedCode = code.trim().toUpperCase();
+  if (!normalizedCode) return null;
+
+  if (IS_E2E_TEST) {
+    const raw = localStorage.getItem(PREFIX + "progress:" + normalizedCode);
+    return raw ? JSON.parse(raw) as ProgressNote : null;
+  }
+
+  await ensureAnonymousAuth();
+  const snapshot = await getDoc(doc(db, "progressNotes", normalizedCode));
+  if (snapshot.exists()) {
+    const note = snapshot.data() as ProgressNote;
+    localStorage.setItem(PREFIX + "progress:" + normalizedCode, JSON.stringify(note));
+    localStorage.setItem(PREFIX + "last-progress-code", normalizedCode);
+    return note;
+  }
+
+  const raw = localStorage.getItem(PREFIX + "progress:" + normalizedCode);
+  return raw ? JSON.parse(raw) as ProgressNote : null;
+}
+
+export function getLastProgressCode(): string | null {
+  return localStorage.getItem(PREFIX + "last-progress-code");
 }
