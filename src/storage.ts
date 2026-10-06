@@ -6,6 +6,7 @@ import {
 import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
 import { auth, db } from "./firebase";
 import type { Evaluation } from "./types";
+import type { ProgressNote } from "./progressTypes";
 
 const PREFIX = "snf-ot-eval:";
 const IS_E2E_TEST = import.meta.env.VITE_E2E_TEST === "true";
@@ -82,4 +83,15 @@ export async function loadEvaluation(code: string): Promise<Evaluation | null> {
 
 export function getLastCode(): string | null {
   return localStorage.getItem(PREFIX + "last-code");
+}
+
+
+export async function saveProgressNote(note: ProgressNote): Promise<void> {
+  if (IS_E2E_TEST) {
+    localStorage.setItem(PREFIX + "progress:" + note.resumeCode, JSON.stringify(note));
+    return;
+  }
+  await ensureAnonymousAuth();
+  await setDoc(doc(db, "progressNotes", note.resumeCode), note);
+  localStorage.setItem(PREFIX + "progress:" + note.resumeCode, JSON.stringify(note));
 }
