@@ -48,6 +48,7 @@ export interface OTGoal {
   condition: string;
   measurableCriterion: string;
   timeframe: string;
+  targetDate?: string;
   goalStatement: string;
 }
 export interface GoalsPlanOfCare {
