@@ -42,9 +42,10 @@ const GG_OPTIONS: { code: SectionGGCode; label: string }[] = [
 ];
 const GOAL_TYPES: GoalType[] = ["Short-term", "Long-term"];
 const GOAL_TIMEFRAMES = ["1 week", "2 weeks", "3 weeks", "4 weeks", "6 weeks", "8 weeks", "By discharge"];
+const MMT_LEVELS = ["0", "1", "2-", "2", "2+", "3-", "3", "3+", "4-", "4", "4+", "5"];
 const GOAL_WIZARD_STEPS = [
   { key: "occupation", title: "1. Occupation / activity", help: "Choose the meaningful occupation you are addressing." },
-  { key: "target", title: "2. Target performance level", help: "Choose the functional level you want the patient to achieve." },
+  { key: "target", title: "2. Target performance level", help: "Choose the performance target. ROM and strength goals use the documented finding to suggest realistic measurable targets." },
   { key: "performanceProblem", title: "3. Functional performance problem", help: "Choose the occupational reason the goal is needed." },
   { key: "condition", title: "4. Condition / context", help: "Choose the conditions under which the patient will perform." },
   { key: "measurableCriterion", title: "5. Measurable criterion", help: "Choose how successful performance will be measured." },
@@ -95,14 +96,88 @@ function calculateTargetDate(baseDate: string, timeframe: string): string {
   date.setDate(date.getDate() + weeks * 7);
   return date.toISOString().slice(0,10);
 }
+function formatSourceFinding(goal: OTGoal): string {
+  if (!goal.sourceType || goal.sourceType === "Functional") return "";
+  const side = goal.sourceSide === "right" ? "Right" : goal.sourceSide === "left" ? "Left" : "";
+  const metric = goal.sourceMetric || (goal.sourceType === "Strength" ? "MMT" : "AROM");
+  const unit = goal.sourceType === "ROM" && goal.sourceBaseline && !goal.sourceBaseline.includes("°") ? "°" : "";
+  return `${side} ${goal.sourceMovement || "finding"} ${metric}: ${goal.sourceBaseline || "not documented"}${unit}`.trim();
+}
+function parseFindingContext(context: string): Partial<OTGoal> {
+  const match = context.match(/^(Right|Left) (.+?) — Impaired; (.+)$/);
+  if (!match) return {};
+  const side = match[1].toLowerCase() as "right" | "left";
+  const movement = match[2];
+  const details = match[3];
+  if (details.includes("MMT:")) {
+    const baseline = details.match(/MMT:\s*([^;]+)/)?.[1]?.trim();
+    if (!baseline || baseline === "not documented") return { sourceType: "Strength", sourceSide: side, sourceMovement: movement, sourceMetric: "MMT" };
+    return { sourceType: "Strength", sourceSide: side, sourceMovement: movement, sourceMetric: "MMT", sourceBaseline: baseline, measurableCriterion: "as measured by manual muscle testing" };
+  }
+  const arom = details.match(/AROM:\s*([^°;]+)/)?.[1]?.trim();
+  const prom = details.match(/PROM:\s*([^°;]+)/)?.[1]?.trim();
+  const useArom = arom && arom !== "not documented";
+  const baseline = useArom ? arom : prom && prom !== "not documented" ? prom : "";
+  const metric = useArom ? "AROM" : "PROM";
+  return { sourceType: "ROM", sourceSide: side, sourceMovement: movement, sourceMetric: metric, sourceBaseline: baseline || undefined, measurableCriterion: "as measured by goniometry" };
+}
+function smartTargetOptions(goal: OTGoal): string[] {
+  if (goal.sourceType === "ROM") {
+    const n = Number(String(goal.sourceBaseline || "").replace(/[^0-9.-]/g, ""));
+    const numeric = Number.isFinite(n) && n >= 0 ? [10, 15, 20].map(delta => `${Math.round(n + delta)}°`) : [];
+    return [...numeric, "increase by 10°", "increase by 15°", "functional ROM sufficient for the selected occupation"];
+  }
+  if (goal.sourceType === "Strength") {
+    const current = String(goal.sourceBaseline || "").replace("/5", "").trim();
+    const idx = MMT_LEVELS.indexOf(current);
+    const next = idx >= 0 ? MMT_LEVELS.slice(idx + 1, Math.min(idx + 5, MMT_LEVELS.length)).map(x => `${x}/5`) : [];
+    return [...next, "improve by one MMT grade", "functional strength sufficient for the selected occupation"];
+  }
+  return ASSISTANCE_OPTIONS.filter(x => x !== "" && x !== "Not Assessed" && x !== "Not Applicable");
+}
+function smartProblemOptions(goal: OTGoal): string[] {
+  if (!goal.sourceType || goal.sourceType === "Functional") return GOAL_PHRASES.performanceProblem;
+  const occupation = ADLS.find(([key]) => key === goal.occupation)?.[1]?.toLowerCase() || goal.occupation.toLowerCase() || "the selected occupation";
+  const side = goal.sourceSide === "right" ? "right" : goal.sourceSide === "left" ? "left" : "involved";
+  if (goal.sourceType === "ROM") {
+    return [
+      `improve ${side} upper-extremity reach required for ${occupation}`,
+      `improve functional range needed to complete ${occupation}`,
+      `reduce physical assistance required during ${occupation}`,
+      `improve access to body or environmental targets during ${occupation}`,
+      "improve independence with daily self-care",
+    ];
+  }
+  return [
+    `improve ${side} upper-extremity strength required for ${occupation}`,
+    `improve ability to lift, support, or control the arm during ${occupation}`,
+    `reduce physical assistance required during ${occupation}`,
+    `improve sustained upper-extremity use during ${occupation}`,
+    "improve independence with daily self-care",
+  ];
+}
+function smartMeasureOptions(goal: OTGoal): string[] {
+  if (goal.sourceType === "ROM") return ["as measured by goniometry", "without increased pain", "with consistent performance across 2 treatment sessions", "while maintaining prescribed precautions"];
+  if (goal.sourceType === "Strength") return ["as measured by manual muscle testing", "with consistent performance across 2 treatment sessions", "without compensatory movement", "while maintaining prescribed precautions"];
+  return GOAL_PHRASES.measurableCriterion;
+}
 function buildGoalStatement(goal: OTGoal): string {
   if (!goal.occupation || !goal.target) return "";
   const problem = goal.performanceProblem.trim() || "improve occupational performance";
   const condition = goal.condition.trim() ? ` while ${goal.condition.trim()}` : "";
-  const measure = goal.measurableCriterion.trim() ? ` as demonstrated by ${goal.measurableCriterion.trim()}` : "";
+  const measure = goal.measurableCriterion.trim() ? `, ${goal.measurableCriterion.trim()}` : "";
   const timeframe = goal.timeframe ? ` within ${goal.timeframe}` : "";
   const targetDate = goal.targetDate ? ` (target date: ${goal.targetDate})` : "";
-  return `Patient will improve ${goal.occupation.toLowerCase()} from ${goal.current || "current documented level"} to ${goal.target.toLowerCase()}${condition} in order to ${problem}${measure}${timeframe}${targetDate}.`;
+  if (goal.sourceType === "ROM" || goal.sourceType === "Strength") {
+    const side = goal.sourceSide === "right" ? "right" : goal.sourceSide === "left" ? "left" : "involved";
+    const movement = goal.sourceMovement || "upper-extremity movement";
+    const metric = goal.sourceMetric || (goal.sourceType === "Strength" ? "MMT" : "AROM");
+    const baselineUnit = goal.sourceType === "ROM" && goal.sourceBaseline && !goal.sourceBaseline.includes("°") ? "°" : goal.sourceType === "Strength" && goal.sourceBaseline && !goal.sourceBaseline.includes("/5") ? "/5" : "";
+    const verb = goal.sourceType === "ROM" ? "increase" : "improve";
+    return `Patient will ${verb} ${side} ${movement.toLowerCase()} ${metric} from ${goal.sourceBaseline || "current documented level"}${baselineUnit} to ${goal.target}${condition} in order to ${problem}${measure}${timeframe}${targetDate}.`;
+  }
+  const measurePhrase = goal.measurableCriterion.trim() ? ` as demonstrated by ${goal.measurableCriterion.trim()}` : "";
+  return `Patient will improve ${goal.occupation.toLowerCase()} from ${goal.current || "current documented level"} to ${goal.target.toLowerCase()}${condition} in order to ${problem}${measurePhrase}${timeframe}${targetDate}.`;
 }
 const ADLS: [string, string][] = [
   ["eating", "Eating"], ["grooming", "Grooming"], ["bathing", "Bathing"], ["upperBodyDressing", "Upper-body dressing"],
@@ -276,6 +351,7 @@ function exportEvaluationPdf(evaluation: Evaluation) {
       addText(`${goal.type} Goal ${index + 1}`, 10, true);
       addText(goal.goalStatement);
       addField("Occupation", goal.occupation);
+      if (goal.sourceType && goal.sourceType !== "Functional") addField("Source finding", formatSourceFinding(goal));
       addField("Baseline", goal.current);
       addField("Target", goal.target);
       addField("Condition", goal.condition);
@@ -418,7 +494,8 @@ export default function App() {
   }
 
   function openGoalBuilder(prefill: Partial<OTGoal> = {}, context = "") {
-    setGoalDraft({ ...blankGoal(), ...prefill });
+    const sourcePrefill = parseFindingContext(context);
+    setGoalDraft({ ...blankGoal(), ...sourcePrefill, ...prefill });
     setGoalContext(context);
     setGoalWizardStep(0);
     setGoalWizardOpen(true);
@@ -492,7 +569,7 @@ export default function App() {
           return <Stack spacing={1.5}><Field label="AROM (degrees)" value={romFinding.arom} disabled={!!disabled} onChange={v => updateNested(section, side, movement, "arom", v)} /><Field label="PROM (degrees)" value={romFinding.prom} disabled={!!disabled} onChange={v => updateNested(section, side, movement, "prom", v)} /></Stack>;
         })() : (() => {
           const strengthFinding = finding as import("./types").StrengthFinding;
-          return <SelectField label="MMT" value={strengthFinding.mmt} options={["0", "1", "2-", "2", "2+", "3-", "3", "3+", "4-", "4", "4+", "5"]} disabled={!!disabled} onChange={v => updateNested(section, side, movement, "mmt", v)} />;
+          return <SelectField label="MMT" value={strengthFinding.mmt} options={MMT_LEVELS} disabled={!!disabled} onChange={v => updateNested(section, side, movement, "mmt", v)} />;
         })())}
         {finding.status === "Impaired" && <Field label="Notes" value={finding.notes} disabled={!!disabled} onChange={v => updateNested(section, side, movement, "notes", v)} />}
         {finding.status === "Impaired" && <Button
@@ -554,282 +631,95 @@ export default function App() {
                 medicalStatus: {
                   ...evaluation.formData.medicalStatus,
                   painInterferesOccupationalParticipation: value,
-                  ...(value === "No"
-                    ? { painTiming: "", painLocation: "", painDescription: "" }
-                    : {}),
+                  ...(value === "No" ? { painTiming: "", painLocation: "", painDescription: "" } : {}),
                 },
               },
             } as Evaluation;
             setEvaluation(next);
             localStorage.setItem("snf-ot-eval:" + next.resumeCode, JSON.stringify(next));
           }}>
-            <MenuItem value=""><em>Select...</em></MenuItem>
-            <MenuItem value="Yes">Yes</MenuItem>
-            <MenuItem value="No">No</MenuItem>
+            <MenuItem value=""><em>Select...</em></MenuItem><MenuItem value="Yes">Yes</MenuItem><MenuItem value="No">No</MenuItem>
           </Select>
         </FormControl>
-        {f.medicalStatus.painInterferesOccupationalParticipation === "Yes" && (
-          <Stack spacing={2}>
-            <FormControl fullWidth disabled={!!disabled}>
-              <InputLabel>Pain timing</InputLabel>
-              <Select value={f.medicalStatus.painTiming} label="Pain timing" onChange={e => updateSection("medicalStatus", "painTiming", e.target.value)}>
-                <MenuItem value=""><em>Select...</em></MenuItem>
-                <MenuItem value="At rest">At rest</MenuItem>
-                <MenuItem value="With activity">With activity</MenuItem>
-                <MenuItem value="At rest and with activity">At rest and with activity</MenuItem>
-              </Select>
-            </FormControl>
-            <Field label="Pain location" value={f.medicalStatus.painLocation} disabled={!!disabled} onChange={v => updateSection("medicalStatus","painLocation",v)} />
-            <Field label="Pain description" value={f.medicalStatus.painDescription} disabled={!!disabled} onChange={v => updateSection("medicalStatus","painDescription",v)} multiline minRows={3} />
-          </Stack>
-        )}
+        {f.medicalStatus.painInterferesOccupationalParticipation === "Yes" && <Stack spacing={2}><FormControl fullWidth disabled={!!disabled}><InputLabel>Pain timing</InputLabel><Select value={f.medicalStatus.painTiming} label="Pain timing" onChange={e => updateSection("medicalStatus", "painTiming", e.target.value)}><MenuItem value=""><em>Select...</em></MenuItem><MenuItem value="At rest">At rest</MenuItem><MenuItem value="With activity">With activity</MenuItem><MenuItem value="At rest and with activity">At rest and with activity</MenuItem></Select></FormControl><Field label="Pain location" value={f.medicalStatus.painLocation} disabled={!!disabled} onChange={v => updateSection("medicalStatus","painLocation",v)} /><Field label="Pain description" value={f.medicalStatus.painDescription} disabled={!!disabled} onChange={v => updateSection("medicalStatus","painDescription",v)} multiline minRows={3} /></Stack>}
       </Stack></PageCard>;
       case "profile": return <PageCard title="Occupational Profile" help="Write a concise occupational profile rather than completing separate prompts for roles, routines, interests, and concerns."><Field label="Occupational Profile / Patient Summary" value={f.occupationalProfile.summary} disabled={!!disabled} onChange={v => updateSection("occupationalProfile","summary",v)} multiline minRows={14} placeholder="Describe the patient's roles, routines, interests, meaningful occupations, occupational concerns, relevant history, and patient priorities." /></PageCard>;
-      case "environment": return <PageCard title="Environment" help="Describe the physical and social environment that may support or limit occupational performance. Keep the main documentation here as one concise environmental narrative.">
-        <Field label="Environment / Home Setup" value={f.environmentPLOF.priorLivingEnvironment} disabled={!!disabled} onChange={v => updateSection("environmentPLOF","priorLivingEnvironment",v)} multiline minRows={12} placeholder="Describe the prior living setting, layout, stairs, bathroom setup, accessibility, caregiver/support availability, routines or environmental demands, and other contextual factors relevant to occupational performance." />
-        <Field label="Current equipment / DME / assistive devices (list)" value={f.environmentPLOF.equipment} disabled={!!disabled} onChange={v => updateSection("environmentPLOF","equipment",v)} placeholder="Example: rolling walker, shower chair, grab bars, wheelchair." />
-      </PageCard>;
-      case "function": return <PageCard title="Performance" help="Document the patient's prior and current assistance levels for each occupation. PLOF is captured here functionally rather than as a separate narrative."><Stack spacing={1.5}>{ADLS.map(([key,label]) => { const assistanceOptions = key === "functionalMobility" ? [...ASSISTANCE_OPTIONS, "Non-ambulatory"] : ASSISTANCE_OPTIONS; return <Card variant="outlined" key={key}><CardContent><Stack spacing={1.5}><Typography variant="h6">{label}</Typography><Stack direction={{ xs:"column", sm:"row" }} spacing={1.5}><SelectField label="PLOF" value={f.adlStatus.plof[key]} options={assistanceOptions} disabled={!!disabled} onChange={v => updateNestedADL("plof",key,v)} /><SelectField label="Current level" value={f.adlStatus.current[key]} options={assistanceOptions} disabled={!!disabled} onChange={v => updateNestedADL("current",key,v)} /></Stack>{f.adlStatus.current[key] && f.adlStatus.current[key] !== "Not Assessed" && f.adlStatus.current[key] !== "Not Applicable" && <Button variant="outlined" size="small" onClick={() => openGoalBuilder({ occupation: key, plof: f.adlStatus.plof[key], current: f.adlStatus.current[key] }, `${label} — Current level: ${f.adlStatus.current[key]}`)} disabled={!!disabled} sx={{ alignSelf: "flex-start", textTransform: "none" }}>Build Goal</Button>}</Stack></CardContent></Card>})}</Stack><Field label="Current occupational performance / functional observations" value={f.adlStatus.observations} disabled={!!disabled} onChange={v => updateSection("adlStatus","observations",v)} multiline minRows={8} /><Stack direction={{ xs:"column", sm:"row" }} spacing={1.5}><Field label="Activity tolerance" value={f.adlStatus.activityTolerance} disabled={!!disabled} onChange={v => updateSection("adlStatus","activityTolerance",v)} /><Field label="Cueing needed" value={f.adlStatus.cueingNeeded} disabled={!!disabled} onChange={v => updateSection("adlStatus","cueingNeeded",v)} /></Stack><Field label="Safety awareness" value={f.adlStatus.safetyAwareness} disabled={!!disabled} onChange={v => updateSection("adlStatus","safetyAwareness",v)} multiline /></PageCard>;
+      case "environment": return <PageCard title="Environment" help="Describe the physical and social environment that may support or limit occupational performance. Keep the main documentation here as one concise environmental narrative."><Field label="Environment / Home Setup" value={f.environmentPLOF.priorLivingEnvironment} disabled={!!disabled} onChange={v => updateSection("environmentPLOF","priorLivingEnvironment",v)} multiline minRows={12} placeholder="Describe the prior living setting, layout, stairs, bathroom setup, accessibility, caregiver/support availability, routines or environmental demands, and other contextual factors relevant to occupational performance." /><Field label="Current equipment / DME / assistive devices (list)" value={f.environmentPLOF.equipment} disabled={!!disabled} onChange={v => updateSection("environmentPLOF","equipment",v)} placeholder="Example: rolling walker, shower chair, grab bars, wheelchair." /></PageCard>;
+      case "function": return <PageCard title="Performance" help="Document the patient's prior and current assistance levels for each occupation. PLOF is captured here functionally rather than as a separate narrative."><Stack spacing={1.5}>{ADLS.map(([key,label]) => { const assistanceOptions = key === "functionalMobility" ? [...ASSISTANCE_OPTIONS, "Non-ambulatory"] : ASSISTANCE_OPTIONS; return <Card variant="outlined" key={key}><CardContent><Stack spacing={1.5}><Typography variant="h6">{label}</Typography><Stack direction={{ xs:"column", sm:"row" }} spacing={1.5}><SelectField label="PLOF" value={f.adlStatus.plof[key]} options={assistanceOptions} disabled={!!disabled} onChange={v => updateNestedADL("plof",key,v)} /><SelectField label="Current level" value={f.adlStatus.current[key]} options={assistanceOptions} disabled={!!disabled} onChange={v => updateNestedADL("current",key,v)} /></Stack>{f.adlStatus.current[key] && f.adlStatus.current[key] !== "Not Assessed" && f.adlStatus.current[key] !== "Not Applicable" && <Button variant="outlined" size="small" onClick={() => openGoalBuilder({ occupation: key, plof: f.adlStatus.plof[key], current: f.adlStatus.current[key], sourceType:"Functional" }, `${label} — Current level: ${f.adlStatus.current[key]}`)} disabled={!!disabled} sx={{ alignSelf: "flex-start", textTransform: "none" }}>Build Goal</Button>}</Stack></CardContent></Card>})}</Stack><Field label="Current occupational performance / functional observations" value={f.adlStatus.observations} disabled={!!disabled} onChange={v => updateSection("adlStatus","observations",v)} multiline minRows={8} /><Stack direction={{ xs:"column", sm:"row" }} spacing={1.5}><Field label="Activity tolerance" value={f.adlStatus.activityTolerance} disabled={!!disabled} onChange={v => updateSection("adlStatus","activityTolerance",v)} /><Field label="Cueing needed" value={f.adlStatus.cueingNeeded} disabled={!!disabled} onChange={v => updateSection("adlStatus","cueingNeeded",v)} /></Stack><Field label="Safety awareness" value={f.adlStatus.safetyAwareness} disabled={!!disabled} onChange={v => updateSection("adlStatus","safetyAwareness",v)} multiline /></PageCard>;
       case "rom": return renderFindingPage("rom");
       case "strength": return renderFindingPage("strength");
-      case "client": return <PageCard title="Cognition, Communication & Sensory Skills" help="Use quick clinical selections for orientation, cognition, communication, sensory status, and related performance factors. Use the Clinical Assessment page for narrative synthesis."><Stack spacing={2}>
-        <Typography variant="h6">Orientation</Typography>
-        <Typography color="text.secondary">Select each domain the patient is oriented to. A&O ×4 is documented when all four are selected.</Typography>
-        <Stack direction={{xs:"column",sm:"row"}} spacing={1}><FormControlLabel control={<Checkbox checked={f.clientFactors.orientedPerson} disabled={!!disabled} onChange={e=>updateSection("clientFactors","orientedPerson",e.target.checked)} />} label="Person" /><FormControlLabel control={<Checkbox checked={f.clientFactors.orientedPlace} disabled={!!disabled} onChange={e=>updateSection("clientFactors","orientedPlace",e.target.checked)} />} label="Place" /><FormControlLabel control={<Checkbox checked={f.clientFactors.orientedTime} disabled={!!disabled} onChange={e=>updateSection("clientFactors","orientedTime",e.target.checked)} />} label="Time" /><FormControlLabel control={<Checkbox checked={f.clientFactors.orientedSituation} disabled={!!disabled} onChange={e=>updateSection("clientFactors","orientedSituation",e.target.checked)} />} label="Situation" /></Stack>
-        <SelectField label="Cognitive / command-following status" value={f.clientFactors.cognition} options={["Alert / appropriate","Follows simple commands","Follows multi-step commands","Requires intermittent cues","Requires frequent cues","Inconsistent command following","Unable to assess"]} disabled={!!disabled} onChange={v=>updateSection("clientFactors","cognition",v)} />
-        <SelectField label="Communication" value={f.clientFactors.communication} options={["Functional verbal communication","Verbal communication with extra time","Uses communication device / alternative communication","Limited by cognition","Limited by hearing","Unable to assess"]} disabled={!!disabled} onChange={v=>updateSection("clientFactors","communication",v)} />
-        <Stack direction={{xs:"column",sm:"row"}} spacing={1.5}><SelectField label="Vision" value={f.clientFactors.vision} options={["Functional for observed tasks","Uses corrective lenses","Mildly impaired","Moderately impaired","Severely impaired","Unable to assess"]} disabled={!!disabled} onChange={v=>updateSection("clientFactors","vision",v)} /><SelectField label="Hearing" value={f.clientFactors.hearing} options={["Functional for conversation","Uses hearing aids","Mildly impaired","Moderately impaired","Severely impaired","Unable to assess"]} disabled={!!disabled} onChange={v=>updateSection("clientFactors","hearing",v)} /></Stack>
-        <Stack direction={{xs:"column",sm:"row"}} spacing={1.5}><SelectField label="Sensation" value={f.clientFactors.sensation} options={["Intact for observed tasks","Mildly impaired","Moderately impaired","Severely impaired","Unable to assess"]} disabled={!!disabled} onChange={v=>updateSection("clientFactors","sensation",v)} /><SelectField label="Coordination" value={f.clientFactors.coordination} options={["Functional","Mildly impaired","Moderately impaired","Severely impaired","Unable to assess"]} disabled={!!disabled} onChange={v=>updateSection("clientFactors","coordination",v)} /></Stack>
-        <Stack direction={{xs:"column",sm:"row"}} spacing={1.5}><SelectField label="Balance" value={f.clientFactors.balance} options={["Functional / independent","Mildly impaired","Moderately impaired","Severely impaired","Unable to assess"]} disabled={!!disabled} onChange={v=>updateSection("clientFactors","balance",v)} /><SelectField label="Endurance / activity tolerance" value={f.clientFactors.endurance} options={["Functional for task","Mildly limited","Moderately limited","Severely limited","Unable to assess"]} disabled={!!disabled} onChange={v=>updateSection("clientFactors","endurance",v)} /></Stack>
-        <SelectField label="Motor planning / praxis" value={f.clientFactors.motorPlanning} options={["Functional","Mildly impaired","Moderately impaired","Severely impaired","Unable to assess"]} disabled={!!disabled} onChange={v=>updateSection("clientFactors","motorPlanning",v)} />
-        <SelectField label="Functional mobility" value={f.clientFactors.functionalMobility} options={["Functional","Requires supervision / cues","Requires physical assistance","Unable to assess"]} disabled={!!disabled} onChange={v=>updateSection("clientFactors","functionalMobility",v)} />
-        </Stack></PageCard>;
+      case "client": return <PageCard title="Cognition, Communication & Sensory Skills" help="Use quick clinical selections for orientation, cognition, communication, sensory status, and related performance factors. Use the Clinical Assessment page for narrative synthesis."><Stack spacing={2}><Typography variant="h6">Orientation</Typography><Typography color="text.secondary">Select each domain the patient is oriented to. A&O ×4 is documented when all four are selected.</Typography><Stack direction={{xs:"column",sm:"row"}} spacing={1}><FormControlLabel control={<Checkbox checked={f.clientFactors.orientedPerson} disabled={!!disabled} onChange={e=>updateSection("clientFactors","orientedPerson",e.target.checked)} />} label="Person" /><FormControlLabel control={<Checkbox checked={f.clientFactors.orientedPlace} disabled={!!disabled} onChange={e=>updateSection("clientFactors","orientedPlace",e.target.checked)} />} label="Place" /><FormControlLabel control={<Checkbox checked={f.clientFactors.orientedTime} disabled={!!disabled} onChange={e=>updateSection("clientFactors","orientedTime",e.target.checked)} />} label="Time" /><FormControlLabel control={<Checkbox checked={f.clientFactors.orientedSituation} disabled={!!disabled} onChange={e=>updateSection("clientFactors","orientedSituation",e.target.checked)} />} label="Situation" /></Stack><SelectField label="Cognitive / command-following status" value={f.clientFactors.cognition} options={["Alert / appropriate","Follows simple commands","Follows multi-step commands","Requires intermittent cues","Requires frequent cues","Inconsistent command following","Unable to assess"]} disabled={!!disabled} onChange={v=>updateSection("clientFactors","cognition",v)} /><SelectField label="Communication" value={f.clientFactors.communication} options={["Functional verbal communication","Verbal communication with extra time","Uses communication device / alternative communication","Limited by cognition","Limited by hearing","Unable to assess"]} disabled={!!disabled} onChange={v=>updateSection("clientFactors","communication",v)} /><Stack direction={{xs:"column",sm:"row"}} spacing={1.5}><SelectField label="Vision" value={f.clientFactors.vision} options={["Functional for observed tasks","Uses corrective lenses","Mildly impaired","Moderately impaired","Severely impaired","Unable to assess"]} disabled={!!disabled} onChange={v=>updateSection("clientFactors","vision",v)} /><SelectField label="Hearing" value={f.clientFactors.hearing} options={["Functional for conversation","Uses hearing aids","Mildly impaired","Moderately impaired","Severely impaired","Unable to assess"]} disabled={!!disabled} onChange={v=>updateSection("clientFactors","hearing",v)} /></Stack><Stack direction={{xs:"column",sm:"row"}} spacing={1.5}><SelectField label="Sensation" value={f.clientFactors.sensation} options={["Intact for observed tasks","Mildly impaired","Moderately impaired","Severely impaired","Unable to assess"]} disabled={!!disabled} onChange={v=>updateSection("clientFactors","sensation",v)} /><SelectField label="Coordination" value={f.clientFactors.coordination} options={["Functional","Mildly impaired","Moderately impaired","Severely impaired","Unable to assess"]} disabled={!!disabled} onChange={v=>updateSection("clientFactors","coordination",v)} /></Stack><Stack direction={{xs:"column",sm:"row"}} spacing={1.5}><SelectField label="Balance" value={f.clientFactors.balance} options={["Functional / independent","Mildly impaired","Moderately impaired","Severely impaired","Unable to assess"]} disabled={!!disabled} onChange={v=>updateSection("clientFactors","balance",v)} /><SelectField label="Endurance / activity tolerance" value={f.clientFactors.endurance} options={["Functional for task","Mildly limited","Moderately limited","Severely limited","Unable to assess"]} disabled={!!disabled} onChange={v=>updateSection("clientFactors","endurance",v)} /></Stack><SelectField label="Motor planning / praxis" value={f.clientFactors.motorPlanning} options={["Functional","Mildly impaired","Moderately impaired","Severely impaired","Unable to assess"]} disabled={!!disabled} onChange={v=>updateSection("clientFactors","motorPlanning",v)} /><SelectField label="Functional mobility" value={f.clientFactors.functionalMobility} options={["Functional","Requires supervision / cues","Requires physical assistance","Unable to assess"]} disabled={!!disabled} onChange={v=>updateSection("clientFactors","functionalMobility",v)} /></Stack></PageCard>;
       case "assessment": return <PageCard title="Clinical Assessment / OT Analysis" help="Synthesize the evaluation findings into one clinical narrative. Include strengths, impairments, activity limitations, participation restrictions, occupational performance problems, and why skilled OT is indicated."><Field label="Assessment / Clinical Impression" value={f.clinicalAssessment.assessmentSummary} disabled={!!disabled} onChange={v=>updateSection("clinicalAssessment","assessmentSummary",v)} multiline minRows={16} placeholder="Synthesize the relevant findings and explain their impact on occupational performance and the need for skilled OT." /><SelectField label="Rehabilitation prognosis" value={f.clinicalAssessment.prognosis} options={["Good","Fair","Guarded","Unable to determine"]} disabled={!!disabled} onChange={v=>updateSection("clinicalAssessment","prognosis",v)} /></PageCard>;
       case "goals": {
         const goals = f.goalsPlanOfCare.goals;
-        const baseline: { plof: AssistanceLevel; current: AssistanceLevel } = goalDraft.occupation
-          ? { plof: f.adlStatus.plof[goalDraft.occupation] ?? "", current: f.adlStatus.current[goalDraft.occupation] ?? "" }
-          : { plof: "", current: "" };
-        const draftWithBaseline: OTGoal = {
-          ...goalDraft,
-          plof: goalDraft.plof || baseline.plof,
-          current: goalDraft.current || baseline.current,
-        };
+        const baseline: { plof: AssistanceLevel; current: AssistanceLevel } = goalDraft.occupation ? { plof: f.adlStatus.plof[goalDraft.occupation] ?? "", current: f.adlStatus.current[goalDraft.occupation] ?? "" } : { plof: "", current: "" };
+        const draftWithBaseline: OTGoal = { ...goalDraft, plof: goalDraft.plof || baseline.plof, current: goalDraft.current || baseline.current };
         const preview = buildGoalStatement(draftWithBaseline);
         const wizardStep = GOAL_WIZARD_STEPS[goalWizardStep];
-        const wizardOptions =
-          wizardStep.key === "occupation" ? ADLS.map(([key,label]) => ({ value: key, label })) :
-          wizardStep.key === "target" ? ASSISTANCE_OPTIONS.filter(x => x !== "" && x !== "Not Assessed" && x !== "Not Applicable").map(x => ({ value: x, label: x })) :
-          wizardStep.key === "timeframe" ? GOAL_TIMEFRAMES.map(x => ({ value: x, label: x })) :
-          GOAL_PHRASES[wizardStep.key].map(x => ({ value: x, label: x }));
+        const optionValues = wizardStep.key === "occupation" ? ADLS.map(([key,label]) => ({ value:key,label })) : wizardStep.key === "target" ? smartTargetOptions(draftWithBaseline).map(x => ({value:x,label:x})) : wizardStep.key === "performanceProblem" ? smartProblemOptions(draftWithBaseline).map(x => ({value:x,label:x})) : wizardStep.key === "measurableCriterion" ? smartMeasureOptions(draftWithBaseline).map(x => ({value:x,label:x})) : wizardStep.key === "timeframe" ? GOAL_TIMEFRAMES.map(x => ({value:x,label:x})) : GOAL_PHRASES.condition.map(x => ({value:x,label:x}));
 
         function chooseWizardValue(value: string) {
           setGoalDraft(g => {
             const updates: Partial<OTGoal> = { [wizardStep.key]: value };
-            if (wizardStep.key === "timeframe") {
-              updates.targetDate = calculateTargetDate(new Date().toISOString().slice(0,10), value);
-            }
+            if (wizardStep.key === "timeframe") updates.targetDate = calculateTargetDate(new Date().toISOString().slice(0,10), value);
             return { ...g, ...updates };
           });
         }
-
         function saveGoal() {
-          const finalGoal: OTGoal = {
-            ...draftWithBaseline,
-            id: goalDraft.id || crypto.randomUUID(),
-            targetDate: goalDraft.targetDate || "",
-            goalStatement: goalDraft.goalStatement.trim() || preview,
-          };
-          if (!finalGoal.occupation.trim() || !finalGoal.target.trim() || !finalGoal.timeframe.trim() || !finalGoal.targetDate?.trim() || !finalGoal.performanceProblem.trim()) {
-            setMessage("Complete the occupation, target, functional problem, timeframe, and target date before saving the goal.");
-            return;
-          }
-          const nextGoals = goalDraft.id
-            ? goals.map(g => g.id === goalDraft.id ? finalGoal : g)
-            : [...goals, finalGoal];
-          updateGoals(nextGoals);
-          setGoalDraft(blankGoal());
-          setGoalWizardStep(0);
-          setGoalWizardOpen(false);
-          setMessage("");
+          const finalGoal: OTGoal = { ...draftWithBaseline, id: goalDraft.id || crypto.randomUUID(), targetDate: goalDraft.targetDate || "", goalStatement: goalDraft.goalStatement.trim() || preview };
+          if (!finalGoal.occupation.trim() || !finalGoal.target.trim() || !finalGoal.timeframe.trim() || !finalGoal.targetDate?.trim() || !finalGoal.performanceProblem.trim()) { setMessage("Complete the occupation, target, functional problem, timeframe, and target date before saving the goal."); return; }
+          const nextGoals = goalDraft.id ? goals.map(g => g.id === goalDraft.id ? finalGoal : g) : [...goals, finalGoal];
+          updateGoals(nextGoals); setGoalDraft(blankGoal()); setGoalWizardStep(0); setGoalWizardOpen(false); setMessage("");
         }
-
         function editGoal(goal: OTGoal) {
           const generatedStatement = buildGoalStatement(goal);
-          openGoalBuilder(
-            {
-              ...goal,
-              targetDate: goal.targetDate || "",
-              goalStatement: goal.goalStatement.trim() === generatedStatement.trim() ? "" : goal.goalStatement,
-            },
-            "",
-          );
+          openGoalBuilder({ ...goal, targetDate: goal.targetDate || "", goalStatement: goal.goalStatement.trim() === generatedStatement.trim() ? "" : goal.goalStatement }, "");
         }
-
-        function removeGoal(id: string) {
-          const nextGoals = goals.filter(g => g.id !== id);
-          updateGoals(nextGoals);
-        }
-
+        function removeGoal(id: string) { updateGoals(goals.filter(g => g.id !== id)); }
         const isEditing = Boolean(goalDraft.id);
+        const sourceLabel = formatSourceFinding(draftWithBaseline);
 
-        return <PageCard title="Goals" help="Build measurable, occupation-based goals from the patient's documented baseline. Presets are suggestions—you can customize individual steps or write the complete goal yourself.">
-          <Alert severity="info">Use the guided steps to build a goal, mix presets with your own wording, or write the complete goal yourself. Each new goal includes a target date. Older saved goals without a target date remain valid and can be updated when edited.</Alert>
+        return <PageCard title="Goals" help="Build measurable, occupation-based goals from the patient's documented baseline. ROM and strength goals now use the exact documented finding to suggest measurable targets and clinically relevant phrases.">
+          <Alert severity="info">When a goal is started from an impaired ROM or strength finding, the builder carries that measurement into the goal, asks which occupation it limits, and then suggests finding-specific targets and measurement language. Suggestions are educational prompts; the student still chooses the clinically appropriate target.</Alert>
           <Button variant="contained" size="large" onClick={()=>openGoalBuilder()} disabled={!!disabled}>Open Guided Goal Builder</Button>
-
           <Dialog open={goalWizardOpen} onClose={()=>{setGoalWizardOpen(false);setGoalDraft(blankGoal());setGoalWizardStep(0);}} fullWidth maxWidth="md">
             <DialogTitle>{isEditing ? "Edit an OT Goal" : "Build an OT Goal"}</DialogTitle>
-            <DialogContent dividers>
-              <Stack spacing={2}>
-                <Typography color="text.secondary">Step {goalWizardStep + 1} of {GOAL_WIZARD_STEPS.length}</Typography>
-                <Typography variant="h6">{wizardStep.title}</Typography>
-                <Typography color="text.secondary">{wizardStep.help}</Typography>
-                {goalContext && <Alert severity="info">Started from: <strong>{goalContext}</strong>{!goalDraft.occupation && " — now connect this finding to an occupation."}</Alert>}
-
-                {wizardStep.key === "occupation" && (
-                  <Stack spacing={2}>
-                    <Stack spacing={1}>
-                      {wizardOptions.map(option => <Button key={option.value} variant={goalDraft.occupation === option.value ? "contained" : "outlined"} onClick={()=>chooseWizardValue(option.value)} sx={{justifyContent:"flex-start",textTransform:"none",py:1.2}}>{option.label}</Button>)}
-                    </Stack>
-                    <Field label="Or enter your own occupation / activity" value={goalDraft.occupation} disabled={!!disabled} onChange={v=>setGoalDraft(g=>({...g,occupation:v}))} placeholder="Example: Meal preparation, medication management, or returning to a hobby" />
-                    {goalDraft.occupation && <Stack spacing={1.5}>
-                      <Typography fontWeight={700}>Baseline for this occupation</Typography>
-                      <SelectField label="Prior level of function (PLOF)" value={goalDraft.plof} options={ASSISTANCE_OPTIONS.filter(x=>x!=="" && x!=="Not Assessed" && x!=="Not Applicable")} disabled={!!disabled} onChange={v=>setGoalDraft(g=>({...g,plof:v as AssistanceLevel}))} />
-                      <SelectField label="Current level of function" value={goalDraft.current} options={ASSISTANCE_OPTIONS.filter(x=>x!=="" && x!=="Not Assessed" && x!=="Not Applicable")} disabled={!!disabled} onChange={v=>setGoalDraft(g=>({...g,current:v as AssistanceLevel}))} />
-                      <Typography variant="body2" color="text.secondary">These values start from the Performance page when documented, but you can correct them here if you created the goal before documenting the ADL.</Typography>
-                    </Stack>}
-                  </Stack>
-                )}
-
-                {wizardStep.key !== "occupation" && (
-                  <Stack spacing={1}>
-                    {wizardOptions.map(option => <Button key={option.value} variant={goalDraft[wizardStep.key] === option.value ? "contained" : "outlined"} onClick={()=>chooseWizardValue(option.value)} sx={{justifyContent:"flex-start",textTransform:"none",py:1.4}}>{option.label}</Button>)}
-                  </Stack>
-                )}
-
-                {(wizardStep.key === "performanceProblem" || wizardStep.key === "condition" || wizardStep.key === "measurableCriterion") && <Field label="Or enter your own phrase" value={String(goalDraft[wizardStep.key])} disabled={!!disabled} onChange={v=>setGoalDraft(g=>({...g,[wizardStep.key]:v}))} multiline minRows={2} />}
-                {wizardStep.key === "target" && <Field label="Or enter your own target performance level" value={goalDraft.target} disabled={!!disabled} onChange={v=>setGoalDraft(g=>({...g,target:v}))} placeholder="Example: setup assistance, independent with adaptive equipment, or completes task safely" />}
-                {wizardStep.key === "timeframe" && <Stack spacing={2}><Field label="Or enter your own timeframe" value={goalDraft.timeframe} disabled={!!disabled} onChange={v=>setGoalDraft(g=>({...g,timeframe:v}))} placeholder="Example: within 10 treatment sessions" /><Field type="date" label="Target date" value={goalDraft.targetDate || ""} disabled={!!disabled} onChange={v=>setGoalDraft(g=>({...g,targetDate:v}))} /></Stack>}
-
-                {wizardStep.key === "occupation" && goalDraft.occupation && <Typography color="text.secondary">Selected occupation: {ADLS.find(([key])=>key===goalDraft.occupation)?.[1] || goalDraft.occupation}</Typography>}
-                {wizardStep.key === "target" && goalDraft.target && <Typography color="text.secondary">Target: {goalDraft.target}</Typography>}
-                {wizardStep.key === "condition" && goalDraft.condition && <Typography color="text.secondary">Condition: {goalDraft.condition}</Typography>}
-                {wizardStep.key === "measurableCriterion" && goalDraft.measurableCriterion && <Typography color="text.secondary">Measurement: {goalDraft.measurableCriterion}</Typography>}
-                {wizardStep.key === "timeframe" && goalDraft.timeframe && <Typography color="text.secondary">Timeframe: {goalDraft.timeframe}{goalDraft.targetDate ? ` · Target date: ${goalDraft.targetDate}` : ""}</Typography>}
-
-                {goalWizardStep === GOAL_WIZARD_STEPS.length - 1 && (
-                  <Stack spacing={2}>
-                    {preview && <Card variant="outlined"><CardContent><Typography fontWeight={700}>Generated goal preview</Typography><Typography sx={{mt:1}}>{preview}</Typography></CardContent></Card>}
-                    <Field
-                      label="Or write your complete goal statement"
-                      value={goalDraft.goalStatement}
-                      disabled={!!disabled}
-                      onChange={v=>setGoalDraft(g=>({...g,goalStatement:v}))}
-                      multiline
-                      minRows={5}
-                      placeholder="Write the full goal in your own clinical wording. If you leave this blank, the generated goal above will be used."
-                    />
-                  </Stack>
-                )}
-              </Stack>
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={()=>setGoalWizardStep(Math.max(0,goalWizardStep-1))} disabled={goalWizardStep===0}>Back</Button>
-              {goalWizardStep < GOAL_WIZARD_STEPS.length - 1 ? <Button variant="contained" onClick={()=>setGoalWizardStep(goalWizardStep+1)} disabled={!goalDraft[wizardStep.key]}>Next</Button> :
-                <Button variant="contained" onClick={saveGoal} disabled={!goalDraft.occupation || !goalDraft.target || !goalDraft.performanceProblem.trim() || !goalDraft.timeframe || !goalDraft.targetDate}> {isEditing ? "Save Changes" : "Add Goal"} </Button>}
-            </DialogActions>
+            <DialogContent dividers><Stack spacing={2}>
+              <Typography color="text.secondary">Step {goalWizardStep + 1} of {GOAL_WIZARD_STEPS.length}</Typography><Typography variant="h6">{wizardStep.title}</Typography><Typography color="text.secondary">{wizardStep.help}</Typography>
+              {goalContext && <Alert severity="info">Started from: <strong>{goalContext}</strong>{!goalDraft.occupation && " — first connect this impairment to an occupation."}</Alert>}
+              {sourceLabel && <Chip label={`Source finding: ${sourceLabel}`} color="secondary" sx={{alignSelf:"flex-start"}}/>}
+              {wizardStep.key === "occupation" && <Stack spacing={2}><Stack spacing={1}>{optionValues.map(option => <Button key={option.value} variant={goalDraft.occupation === option.value ? "contained" : "outlined"} onClick={()=>chooseWizardValue(option.value)} sx={{justifyContent:"flex-start",textTransform:"none",py:1.2}}>{option.label}</Button>)}</Stack><Field label="Or enter your own occupation / activity" value={goalDraft.occupation} disabled={!!disabled} onChange={v=>setGoalDraft(g=>({...g,occupation:v}))} placeholder="Example: Meal preparation, medication management, or returning to a hobby" />{goalDraft.occupation && <Stack spacing={1.5}><Typography fontWeight={700}>Functional baseline for this occupation</Typography><SelectField label="Prior level of function (PLOF)" value={goalDraft.plof} options={ASSISTANCE_OPTIONS.filter(x=>x!=="" && x!=="Not Assessed" && x!=="Not Applicable")} disabled={!!disabled} onChange={v=>setGoalDraft(g=>({...g,plof:v as AssistanceLevel}))} /><SelectField label="Current level of function" value={goalDraft.current} options={ASSISTANCE_OPTIONS.filter(x=>x!=="" && x!=="Not Assessed" && x!=="Not Applicable")} disabled={!!disabled} onChange={v=>setGoalDraft(g=>({...g,current:v as AssistanceLevel}))} /></Stack>}</Stack>}
+              {wizardStep.key !== "occupation" && <Stack spacing={1}>{optionValues.map(option => <Button key={option.value} variant={String(goalDraft[wizardStep.key]) === option.value ? "contained" : "outlined"} onClick={()=>chooseWizardValue(option.value)} sx={{justifyContent:"flex-start",textTransform:"none",py:1.4}}>{option.label}</Button>)}</Stack>}
+              {(wizardStep.key === "performanceProblem" || wizardStep.key === "condition" || wizardStep.key === "measurableCriterion") && <Field label="Or enter your own phrase" value={String(goalDraft[wizardStep.key])} disabled={!!disabled} onChange={v=>setGoalDraft(g=>({...g,[wizardStep.key]:v}))} multiline minRows={2} />}
+              {wizardStep.key === "target" && <Field label={goalDraft.sourceType === "ROM" ? "Or enter your own ROM target" : goalDraft.sourceType === "Strength" ? "Or enter your own strength target" : "Or enter your own target performance level"} value={goalDraft.target} disabled={!!disabled} onChange={v=>setGoalDraft(g=>({...g,target:v}))} placeholder={goalDraft.sourceType === "ROM" ? "Example: 110° or functional ROM for dressing" : goalDraft.sourceType === "Strength" ? "Example: 4-/5 or improve by one MMT grade" : "Example: setup assistance or independent with adaptive equipment"} />}
+              {wizardStep.key === "timeframe" && <Stack spacing={2}><Field label="Or enter your own timeframe" value={goalDraft.timeframe} disabled={!!disabled} onChange={v=>setGoalDraft(g=>({...g,timeframe:v}))} placeholder="Example: within 10 treatment sessions" /><Field type="date" label="Target date" value={goalDraft.targetDate || ""} disabled={!!disabled} onChange={v=>setGoalDraft(g=>({...g,targetDate:v}))} /></Stack>}
+              {wizardStep.key === "occupation" && goalDraft.occupation && <Typography color="text.secondary">Selected occupation: {ADLS.find(([key])=>key===goalDraft.occupation)?.[1] || goalDraft.occupation}</Typography>}
+              {wizardStep.key === "target" && goalDraft.target && <Typography color="text.secondary">Target: {goalDraft.target}</Typography>}
+              {wizardStep.key === "condition" && goalDraft.condition && <Typography color="text.secondary">Condition: {goalDraft.condition}</Typography>}
+              {wizardStep.key === "measurableCriterion" && goalDraft.measurableCriterion && <Typography color="text.secondary">Measurement: {goalDraft.measurableCriterion}</Typography>}
+              {wizardStep.key === "timeframe" && goalDraft.timeframe && <Typography color="text.secondary">Timeframe: {goalDraft.timeframe}{goalDraft.targetDate ? ` · Target date: ${goalDraft.targetDate}` : ""}</Typography>}
+              {goalWizardStep === GOAL_WIZARD_STEPS.length - 1 && <Stack spacing={2}>{preview && <Card variant="outlined"><CardContent><Typography fontWeight={700}>Generated goal preview</Typography><Typography sx={{mt:1}}>{preview}</Typography></CardContent></Card>}<Field label="Or write your complete goal statement" value={goalDraft.goalStatement} disabled={!!disabled} onChange={v=>setGoalDraft(g=>({...g,goalStatement:v}))} multiline minRows={5} placeholder="Write the full goal in your own clinical wording. If you leave this blank, the generated goal above will be used." /></Stack>}
+            </Stack></DialogContent>
+            <DialogActions><Button onClick={()=>setGoalWizardStep(Math.max(0,goalWizardStep-1))} disabled={goalWizardStep===0}>Back</Button>{goalWizardStep < GOAL_WIZARD_STEPS.length - 1 ? <Button variant="contained" onClick={()=>setGoalWizardStep(goalWizardStep+1)} disabled={!goalDraft[wizardStep.key]}>Next</Button> : <Button variant="contained" onClick={saveGoal} disabled={!goalDraft.occupation || !goalDraft.target || !goalDraft.performanceProblem.trim() || !goalDraft.timeframe || !goalDraft.targetDate}>{isEditing ? "Save Changes" : "Add Goal"}</Button>}</DialogActions>
           </Dialog>
-
-          <Divider />
-          <Typography variant="h6">Goals in this evaluation</Typography>
-          {goals.length === 0 ? <Typography color="text.secondary">No goals added yet.</Typography> : <Stack spacing={1.5}>{goals.map((goal,index)=><Card variant="outlined" key={goal.id || index}><CardContent><Stack spacing={1}><Stack direction="row" justifyContent="space-between" alignItems="center"><Typography fontWeight={700}>{goal.type} Goal {index+1}</Typography><Stack direction="row" spacing={1}><Button size="small" onClick={()=>editGoal(goal)} disabled={!!disabled}>Edit</Button><Button color="error" size="small" onClick={()=>removeGoal(goal.id)} disabled={!!disabled}>Remove</Button></Stack></Stack><Typography>{goal.goalStatement}</Typography><Typography variant="body2" color="text.secondary">{ADLS.find(([key])=>key===goal.occupation)?.[1] || goal.occupation} · PLOF: {goal.plof || "Not documented"} · Current: {goal.current || "Not documented"} · Target: {goal.target || "Not documented"} · {goal.timeframe || "No timeframe"} · Target date: {goal.targetDate || "Not documented"}</Typography></Stack></CardContent></Card>)}</Stack>}
+          <Divider /><Typography variant="h6">Goals in this evaluation</Typography>
+          {goals.length === 0 ? <Typography color="text.secondary">No goals added yet.</Typography> : <Stack spacing={1.5}>{goals.map((goal,index)=><Card variant="outlined" key={goal.id || index}><CardContent><Stack spacing={1}><Stack direction="row" justifyContent="space-between" alignItems="center"><Typography fontWeight={700}>{goal.type} Goal {index+1}</Typography><Stack direction="row" spacing={1}><Button size="small" onClick={()=>editGoal(goal)} disabled={!!disabled}>Edit</Button><Button color="error" size="small" onClick={()=>removeGoal(goal.id)} disabled={!!disabled}>Remove</Button></Stack></Stack><Typography>{goal.goalStatement}</Typography>{goal.sourceType && goal.sourceType !== "Functional" && <Typography variant="body2" color="secondary.main">Source: {formatSourceFinding(goal)}</Typography>}<Typography variant="body2" color="text.secondary">{ADLS.find(([key])=>key===goal.occupation)?.[1] || goal.occupation} · Current function: {goal.current || "Not documented"} · Target: {goal.target || "Not documented"} · {goal.timeframe || "No timeframe"} · Target date: {goal.targetDate || "Not documented"}</Typography></Stack></CardContent></Card>)}</Stack>}
         </PageCard>;
       }
       case "plan": return <PageCard title="Plan of Care"><Stack spacing={2}><Stack direction={{xs:"column",sm:"row"}} spacing={1.5}><Field label="Frequency" value={f.goalsPlanOfCare.frequency} disabled={!!disabled} onChange={v=>updateSection("goalsPlanOfCare","frequency",v)} /><Field label="Duration" value={f.goalsPlanOfCare.duration} disabled={!!disabled} onChange={v=>updateSection("goalsPlanOfCare","duration",v)} /></Stack><Typography fontWeight={600}>Planned skilled interventions</Typography>{INTERVENTIONS.map(i=><FormControlLabel key={i} control={<Checkbox checked={f.goalsPlanOfCare.treatmentInterventions.includes(i)} disabled={!!disabled} onChange={e=>updateSection("goalsPlanOfCare","treatmentInterventions",e.target.checked?[...f.goalsPlanOfCare.treatmentInterventions,i]:f.goalsPlanOfCare.treatmentInterventions.filter(x=>x!==i))}/>} label={i}/>)}<Field label="Patient / caregiver education" value={f.goalsPlanOfCare.patientCaregiverEducation} disabled={!!disabled} onChange={v=>updateSection("goalsPlanOfCare","patientCaregiverEducation",v)} multiline minRows={6}/><Field label="Discharge planning / anticipated disposition" value={f.goalsPlanOfCare.dischargePlan} disabled={!!disabled} onChange={v=>updateSection("goalsPlanOfCare","dischargePlan",v)} multiline minRows={6}/></Stack></PageCard>;
       case "gg": return <PageCard title="Section GG" help="Educational reference only. This is not an official MDS or billing form."><Stack spacing={1.5}>{([["eating","Eating"],["oralHygiene","Oral hygiene"],["toiletingHygiene","Toileting hygiene"],["showerBathing","Shower / bathing"],["upperBodyDressing","Upper-body dressing"],["lowerBodyDressing","Lower-body dressing"],["footwear","Footwear"],["rolling","Rolling"],["sitToLying","Sit to lying"],["lyingToSitting","Lying to sitting"],["sitToStand","Sit to stand"],["chairBedTransfer","Chair / bed transfer"],["toiletTransfer","Toilet transfer"],["walking10Feet","Walking 10 feet"],["walking50FeetTurn","Walking 50 feet with turns"],["stairs","Stairs"]] as const).map(([key,label])=><SelectField key={key} label={label} value={f.sectionGG[key]} options={GG_OPTIONS.map(x=>x.label)} disabled={!!disabled} onChange={v=>updateSection("sectionGG",key,GG_OPTIONS.find(x=>x.label===v)?.code ?? "")}/>)}<Field label="Section GG notes / reasoning" value={f.sectionGG.ggNotes} disabled={!!disabled} onChange={v=>updateSection("sectionGG","ggNotes",v)} multiline minRows={6}/></Stack></PageCard>;
-      case "review": return <PageCard title="Review / Attestation">
-        {evaluation.status === "submitted" ? (
-          <Alert severity="success">
-            <Typography fontWeight={700}>Evaluation submitted</Typography>
-            <Typography>This evaluation is now read-only. You can review the completed evaluation using the navigation.</Typography>
-          </Alert>
-        ) : (
-          <Alert severity="info">Review your work before submitting. Once submitted, this evaluation becomes read-only.</Alert>
-        )}
-        <Typography>Progress: {progress}%</Typography>
-        <LinearProgress variant="determinate" value={progress}/>
-        <Field label="Student name" value={f.signatureAttestation.studentName} disabled={!!disabled} onChange={v=>updateSection("signatureAttestation","studentName",v)}/>
-        <Field label="Credentials / role" value={f.signatureAttestation.credentials} disabled={!!disabled} onChange={v=>updateSection("signatureAttestation","credentials",v)}/>
-        <FormControlLabel
-          control={<Checkbox checked={f.signatureAttestation.attestation} disabled={!!disabled} onChange={e=>updateSection("signatureAttestation","attestation",e.target.checked)}/>}
-          label="I attest that this is my educational evaluation work based on a fictional case and that I believe that the Detroit Lions will win the superbowl"
-        />
-        {evaluation.status === "submitted" ? (
-          <Stack spacing={1.5}>
-            <Typography variant="body2" color="text.secondary">Resume code: {evaluation.resumeCode}</Typography>
-            <Button variant="outlined" onClick={startNewEvaluation}>Start New Evaluation</Button>
-          </Stack>
-        ) : (
-          <Button
-            variant="contained"
-            color="primary"
-            size="large"
-            onClick={() => {
-              if (!f.signatureAttestation.attestation) {
-                setMessage("Complete the attestation before submitting.");
-                return;
-              }
-              setSubmitDialogOpen(true);
-            }}
-            disabled={!!disabled}
-          >
-            Submit Evaluation
-          </Button>
-        )}
-      </PageCard>;
+      case "review": return <PageCard title="Review / Attestation">{evaluation.status === "submitted" ? <Alert severity="success"><Typography fontWeight={700}>Evaluation submitted</Typography><Typography>This evaluation is now read-only. You can review the completed evaluation using the navigation.</Typography></Alert> : <Alert severity="info">Review your work before submitting. Once submitted, this evaluation becomes read-only.</Alert>}<Typography>Progress: {progress}%</Typography><LinearProgress variant="determinate" value={progress}/><Field label="Student name" value={f.signatureAttestation.studentName} disabled={!!disabled} onChange={v=>updateSection("signatureAttestation","studentName",v)}/><Field label="Credentials / role" value={f.signatureAttestation.credentials} disabled={!!disabled} onChange={v=>updateSection("signatureAttestation","credentials",v)}/><FormControlLabel control={<Checkbox checked={f.signatureAttestation.attestation} disabled={!!disabled} onChange={e=>updateSection("signatureAttestation","attestation",e.target.checked)}/>} label="I attest that this is my educational evaluation work based on a fictional case and that I believe that the Detroit Lions will win the superbowl" />{evaluation.status === "submitted" ? <Stack spacing={1.5}><Typography variant="body2" color="text.secondary">Resume code: {evaluation.resumeCode}</Typography><Button variant="outlined" onClick={startNewEvaluation}>Start New Evaluation</Button></Stack> : <Button variant="contained" color="primary" size="large" onClick={()=>{if(!f.signatureAttestation.attestation){setMessage("Complete the attestation before submitting.");return;}setSubmitDialogOpen(true);}} disabled={!!disabled}>Submit Evaluation</Button>}</PageCard>;
     }
   }
 
   if (screen === "progress") return <ProgressNoteScreen onExit={() => { setScreen("home"); setMessage(""); }} />;
-
   if (screen === "evaluation" && evaluation) return <Container maxWidth="xl" sx={{ py: 3 }}><Stack spacing={2}>
     <Stack direction={{xs:"column",lg:"row"}} spacing={2} alignItems={{xs:"flex-start",lg:"center"}} justifyContent="space-between"><Box><Typography variant="h4" fontWeight={800}>SNF OT Initial Evaluation</Typography><Typography color="text.secondary">Student: {evaluation.studentName} · Resume code: {evaluation.resumeCode}</Typography></Box><Chip label={evaluation.status === "submitted" ? "Submitted" : "Draft"}/></Stack>
     <LinearProgress variant="determinate" value={progress}/>
-    <Stack direction={{xs:"column",md:"row"}} spacing={3} alignItems="flex-start">
-      <Card sx={{ width:{xs:"100%",md:260}, position:{md:"sticky"}, top:{md:16} }}><CardContent><Typography fontWeight={700} sx={{mb:1}}>Evaluation sections</Typography><Stack spacing={0.5}>{PAGES.map(([id,title],i)=><Button key={id} fullWidth sx={{justifyContent:"flex-start",textAlign:"left"}} variant={page===id?"contained":"text"} onClick={()=>setPage(id as PageId)}>{i+1}. {title}</Button>)}</Stack></CardContent></Card>
-      <Box sx={{ flex:1, minWidth:0 }}>{renderPage()}<Stack direction="row" justifyContent="space-between" sx={{mt:2}}><Button disabled={PAGES.findIndex(p=>p[0]===page)===0} onClick={()=>setPage(PAGES[PAGES.findIndex(p=>p[0]===page)-1][0])}>Previous</Button><Button disabled={PAGES.findIndex(p=>p[0]===page)===PAGES.length-1} variant="contained" onClick={()=>setPage(PAGES[PAGES.findIndex(p=>p[0]===page)+1][0])}>Next</Button></Stack></Box>
-    </Stack>
+    <Stack direction={{xs:"column",md:"row"}} spacing={3} alignItems="flex-start"><Card sx={{ width:{xs:"100%",md:260}, position:{md:"sticky"}, top:{md:16} }}><CardContent><Typography fontWeight={700} sx={{mb:1}}>Evaluation sections</Typography><Stack spacing={0.5}>{PAGES.map(([id,title],i)=><Button key={id} fullWidth sx={{justifyContent:"flex-start",textAlign:"left"}} variant={page===id?"contained":"text"} onClick={()=>setPage(id as PageId)}>{i+1}. {title}</Button>)}</Stack></CardContent></Card><Box sx={{ flex:1, minWidth:0 }}>{renderPage()}<Stack direction="row" justifyContent="space-between" sx={{mt:2}}><Button disabled={PAGES.findIndex(p=>p[0]===page)===0} onClick={()=>setPage(PAGES[PAGES.findIndex(p=>p[0]===page)-1][0])}>Previous</Button><Button disabled={PAGES.findIndex(p=>p[0]===page)===PAGES.length-1} variant="contained" onClick={()=>setPage(PAGES[PAGES.findIndex(p=>p[0]===page)+1][0])}>Next</Button></Stack></Box></Stack>
     {message && <Alert severity={message.includes("saved") || message.includes("submitted") ? "success" : "error"}>{message}</Alert>}
-    <Stack direction={{xs:"column-reverse",sm:"row"}} spacing={1.5} justifyContent="space-between">
-      <Button variant="text" onClick={startNewEvaluation} disabled={busy}>Home / Exit</Button>
-      <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
-        <Button variant="outlined" onClick={() => evaluation && exportEvaluationPdf(evaluation)} disabled={!evaluation || busy}>
-          Download PDF
-        </Button>
-        <Button variant="outlined" onClick={saveDraft} disabled={!!disabled}>Save Draft</Button>
-      </Stack>
-    </Stack>
-
-    <Dialog open={submitDialogOpen} onClose={() => !busy && setSubmitDialogOpen(false)} maxWidth="sm" fullWidth>
-      <DialogTitle>Submit Evaluation?</DialogTitle>
-      <DialogContent dividers>
-        <Stack spacing={2}>
-          <Typography>
-            Once you submit this evaluation, it will be saved to Firebase and become read-only.
-          </Typography>
-          <Typography color="text.secondary">
-            You will still be able to review the completed evaluation, but you will not be able to edit it.
-          </Typography>
-          <Alert severity="warning">
-            Make sure you have reviewed your documentation before submitting.
-          </Alert>
-        </Stack>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={() => setSubmitDialogOpen(false)} disabled={busy}>Cancel</Button>
-        <Button variant="contained" onClick={submitEvaluation} disabled={busy}>Submit Evaluation</Button>
-      </DialogActions>
-    </Dialog>
+    <Stack direction={{xs:"column-reverse",sm:"row"}} spacing={1.5} justifyContent="space-between"><Button variant="text" onClick={startNewEvaluation} disabled={busy}>Home / Exit</Button><Stack direction={{ xs: "column", sm: "row" }} spacing={1}><Button variant="outlined" onClick={() => evaluation && exportEvaluationPdf(evaluation)} disabled={!evaluation || busy}>Download PDF</Button><Button variant="outlined" onClick={saveDraft} disabled={!!disabled}>Save Draft</Button></Stack></Stack>
+    <Dialog open={submitDialogOpen} onClose={() => !busy && setSubmitDialogOpen(false)} maxWidth="sm" fullWidth><DialogTitle>Submit Evaluation?</DialogTitle><DialogContent dividers><Stack spacing={2}><Typography>Once you submit this evaluation, it will be saved to Firebase and become read-only.</Typography><Typography color="text.secondary">You will still be able to review the completed evaluation, but you will not be able to edit it.</Typography><Alert severity="warning">Make sure you have reviewed your documentation before submitting.</Alert></Stack></DialogContent><DialogActions><Button onClick={() => setSubmitDialogOpen(false)} disabled={busy}>Cancel</Button><Button variant="contained" onClick={submitEvaluation} disabled={busy}>Submit Evaluation</Button></DialogActions></Dialog>
   </Stack></Container>;
 
   return <Container maxWidth="sm" sx={{py:8}}><Stack spacing={3}><Box><Typography variant="h3" fontWeight={800}>SNF OT Evaluation</Typography><Typography variant="h6" color="text.secondary">Interactive teaching and practice tool for SNF OT initial evaluations.</Typography></Box><Alert severity="info"><Typography fontWeight={700}>Educational Demonstration</Typography><Typography variant="body2" sx={{mt:0.5}}>This is an early prototype designed to demonstrate the workflow and documentation structure of a skilled nursing facility occupational therapy initial evaluation. All patient information is fictional. Some features, including save/resume functionality, are still undergoing testing and refinement.</Typography></Alert><Card><CardContent><Stack spacing={2}><Typography variant="h5">Start a blank evaluation</Typography><Field label="Student name" value={studentName} disabled={busy} onChange={setStudentName}/><Button variant="contained" size="large" onClick={startEvaluation} disabled={busy}>Start Evaluation</Button></Stack></CardContent></Card><Card><CardContent><Stack spacing={2}><Typography variant="h5">Progress note</Typography><Typography color="text.secondary">Create a progress note from a saved initial evaluation. Baseline function and goals carry forward automatically.</Typography><Button variant="contained" color="secondary" size="large" onClick={()=>{setMessage("");setScreen("progress");}}>Start Progress Note</Button></Stack></CardContent></Card><Divider>OR</Divider><Card><CardContent><Stack spacing={2}><Typography variant="h5">Resume an evaluation</Typography><Field label="Resume code" value={resumeCode} disabled={busy} onChange={v=>setResumeCode(v.toUpperCase())}/><Button variant="outlined" size="large" onClick={resumeEvaluation} disabled={busy}>Resume Evaluation</Button></Stack></CardContent></Card>{message&&<Alert severity="error">{message}</Alert>}</Stack></Container>;
