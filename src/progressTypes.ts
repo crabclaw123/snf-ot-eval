@@ -1,4 +1,4 @@
-import type { AssistanceLevel, Evaluation, OTGoal } from "./types";
+import type { AssistanceLevel, ClientFactors, Evaluation, OTGoal, ROMAssessment, StrengthAssessment } from "./types";
 
 export type GoalProgressStatus = "" | "Met" | "Partially Met" | "Unmet";
 export type GoalPlan = "Continue" | "Upgrade" | "Discontinue";
@@ -31,6 +31,12 @@ export interface ProgressNote {
   currentADL: Record<string, AssistanceLevel>;
   functionalADLConfirmed: Record<string, boolean>;
   functionalNotes: string;
+  currentClientFactors: ClientFactors;
+  cognitionConfirmed: Record<string, boolean>;
+  currentROM: ROMAssessment;
+  romConfirmed: Record<string, boolean>;
+  currentStrength: StrengthAssessment;
+  strengthConfirmed: Record<string, boolean>;
   romUpdate: string;
   strengthUpdate: string;
   balanceUpdate: string;
@@ -50,8 +56,48 @@ export interface ProgressNote {
   caregiverEquipmentNeeds: string;
 }
 
+function cloneROM(rom: ROMAssessment): ROMAssessment {
+  return {
+    right: Object.fromEntries(Object.entries(rom.right).map(([key, value]) => [key, { ...value }])),
+    left: Object.fromEntries(Object.entries(rom.left).map(([key, value]) => [key, { ...value }])),
+    notes: rom.notes,
+  };
+}
+
+function cloneStrength(strength: StrengthAssessment): StrengthAssessment {
+  return {
+    right: Object.fromEntries(Object.entries(strength.right).map(([key, value]) => [key, { ...value }])),
+    left: Object.fromEntries(Object.entries(strength.left).map(([key, value]) => [key, { ...value }])),
+    notes: strength.notes,
+  };
+}
+
 export function createProgressNote(evaluation: Evaluation, resumeCode: string): ProgressNote {
   const now = new Date().toISOString();
+  const romKeys = [
+    ...Object.keys(evaluation.formData.rom.right).map(key => `right:${key}`),
+    ...Object.keys(evaluation.formData.rom.left).map(key => `left:${key}`),
+  ];
+  const strengthKeys = [
+    ...Object.keys(evaluation.formData.strength.right).map(key => `right:${key}`),
+    ...Object.keys(evaluation.formData.strength.left).map(key => `left:${key}`),
+  ];
+  const cognitionKeys = [
+    "orientation",
+    "cognition",
+    "communication",
+    "vision",
+    "hearing",
+    "sensation",
+    "coordination",
+    "balance",
+    "endurance",
+    "motorPlanning",
+    "functionalMobility",
+    "standardizedAssessments",
+    "assessmentFindings",
+  ];
+
   return {
     id: crypto.randomUUID(), resumeCode, sourceEvaluationCode: evaluation.resumeCode,
     studentName: evaluation.studentName, status: "draft", createdAt: now, updatedAt: now,
@@ -59,7 +105,14 @@ export function createProgressNote(evaluation: Evaluation, resumeCode: string): 
     reportingPeriodEnd: new Date().toISOString().slice(0,10), visitsSinceEvaluation: "",
     medicalUpdates: "", pain: "", fallsHospitalizations: "", precautionsChanges: "",
     currentADL: { ...evaluation.formData.adlStatus.current },
-    functionalADLConfirmed: Object.fromEntries(Object.keys(evaluation.formData.adlStatus.current).map(key => [key, false])), functionalNotes: "",
+    functionalADLConfirmed: Object.fromEntries(Object.keys(evaluation.formData.adlStatus.current).map(key => [key, false])),
+    functionalNotes: "",
+    currentClientFactors: { ...evaluation.formData.clientFactors },
+    cognitionConfirmed: Object.fromEntries(cognitionKeys.map(key => [key, false])),
+    currentROM: cloneROM(evaluation.formData.rom),
+    romConfirmed: Object.fromEntries(romKeys.map(key => [key, false])),
+    currentStrength: cloneStrength(evaluation.formData.strength),
+    strengthConfirmed: Object.fromEntries(strengthKeys.map(key => [key, false])),
     romUpdate: "", strengthUpdate: "", balanceUpdate: "", enduranceUpdate: "",
     cognitionSafetyUpdate: "", otherPerformanceUpdate: "", skilledInterventions: [],
     responseToIntervention: "", barriers: "", facilitators: "",
