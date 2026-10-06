@@ -398,10 +398,8 @@ export default function App() {
         goalsPlanOfCare: {
           ...evaluation.formData.goalsPlanOfCare,
           goals,
-          shortTermGoals: goals.filter(g => g.type === "Short-term").map(g => g.goalStatement).join("
-"),
-          longTermGoals: goals.filter(g => g.type === "Long-term").map(g => g.goalStatement).join("
-"),
+          shortTermGoals: goals.filter(g => g.type === "Short-term").map(g => g.goalStatement).join("\n"),
+          longTermGoals: goals.filter(g => g.type === "Long-term").map(g => g.goalStatement).join("\n"),
         },
       },
     } as Evaluation;
