@@ -14,7 +14,7 @@ function baseGoal(overrides: Partial<OTGoal> = {}): OTGoal {
     plof: "Independent",
     current: "Minimal Assist",
     target: "Supervision",
-    performanceProblem: "reduce caregiver assistance required for eating",
+    performanceProblem: "reduce caregiver assistance during eating",
     condition: "with no more than 2 verbal cues",
     measurableCriterion: "in 4 out of 5 observed opportunities",
     timeframe: "4 weeks",
@@ -30,7 +30,7 @@ describe("goal builder logic", () => {
     const statement = buildGoalStatement(baseGoal());
 
     expect(statement).toBe(
-      "Patient will complete eating with supervision and no more than 2 verbal cues in 4 out of 5 observed opportunities to reduce caregiver assistance required for eating within 4 weeks (target date: 11/03/2026).",
+      "Patient will improve eating from minimal assistance to supervision with no more than 2 verbal cues in 4 out of 5 observed opportunities to reduce caregiver assistance during eating within 4 weeks (target date: 11/03/2026).",
     );
     expect(statement).not.toContain("while with");
     expect(statement).not.toContain("as demonstrated by without");
@@ -54,7 +54,7 @@ describe("goal builder logic", () => {
     }));
 
     expect(statement).toBe(
-      "Patient will increase right shoulder extension AROM from 45° to 65°, without increased pain, as measured by goniometry to improve right upper-extremity reach required for upper-body dressing within 6 weeks (target date: 11/17/2026).",
+      "Patient will increase right shoulder extension AROM from 45° to 65° without increased pain, as measured by goniometry, to improve right upper-extremity reach required for upper-body dressing within 6 weeks (target date: 11/17/2026).",
     );
   });
 
@@ -75,7 +75,7 @@ describe("goal builder logic", () => {
     }));
 
     expect(statement).toBe(
-      "Patient will improve right shoulder flexion strength from 3/5 to 4-/5, without compensatory movement, as measured by manual muscle testing to improve right upper-extremity strength required for upper-body dressing within 6 weeks (target date: 11/17/2026).",
+      "Patient will improve right shoulder flexion strength from 3/5 to 4-/5 without compensatory movement, as measured by manual muscle testing, to improve right upper-extremity strength required for upper-body dressing within 6 weeks (target date: 11/17/2026).",
     );
   });
 
