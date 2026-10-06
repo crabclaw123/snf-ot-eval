@@ -626,8 +626,8 @@ export default function App() {
         function chooseWizardValue(value: string) {
           setGoalDraft(g => {
             const updates: Partial<OTGoal> = { [wizardStep.key]: value };
-            if (wizardStep.key === "timeframe" && !g.targetDate) {
-              updates.targetDate = calculateTargetDate(f.patientInfo.evaluationDate, value);
+            if (wizardStep.key === "timeframe") {
+              updates.targetDate = calculateTargetDate(new Date().toISOString().slice(0,10), value);
             }
             return { ...g, ...updates };
           });
