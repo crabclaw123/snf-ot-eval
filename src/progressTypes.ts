@@ -117,8 +117,13 @@ export function createProgressNote(evaluation: Evaluation, resumeCode: string): 
     cognitionSafetyUpdate: "", otherPerformanceUpdate: "", skilledInterventions: [],
     responseToIntervention: "", barriers: "", facilitators: "",
     goals: evaluation.formData.goalsPlanOfCare.goals.map(g => ({
-      goalId: g.id, originalGoal: g, currentPerformance: g.current || "", status: "",
-      plan: "Continue", modifiedGoal: "", notes: ""
+      goalId: g.id,
+      originalGoal: g,
+      currentPerformance: g.sourceBaseline || g.current || "",
+      status: "",
+      plan: "Continue",
+      modifiedGoal: "",
+      notes: ""
     })),
     assessment: "", continuedSkilledNeed: "", planDecision: "Continue POC",
     frequency: evaluation.formData.goalsPlanOfCare.frequency,
