@@ -423,6 +423,44 @@ export default function ProgressNoteScreen({ onExit, mode = "new" }: { onExit: (
     patch("goals", goals);
   }
 
+  function collectDescendantGoalIds(startGoalId: string) {
+    if (!note) return new Set<string>();
+    const ids = new Set<string>([startGoalId]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      note.goals.forEach(goal => {
+        if (goal.parentGoalId && ids.has(goal.parentGoalId) && !ids.has(goal.goalId)) {
+          ids.add(goal.goalId);
+          changed = true;
+        }
+      });
+    }
+    return ids;
+  }
+
+  function removeProgressedGoal(childGoalId: string, requireConfirmation = true) {
+    if (!note) return;
+    const child = note.goals.find(goal => goal.goalId === childGoalId);
+    if (!child?.parentGoalId) return;
+    if (requireConfirmation && !window.confirm("Remove this progressed goal? The completed parent goal will be kept and can still be edited.")) return;
+
+    const removeIds = collectDescendantGoalIds(childGoalId);
+    const parentId = child.parentGoalId;
+    const goals = note.goals
+      .filter(goal => !removeIds.has(goal.goalId))
+      .map(goal => goal.goalId === parentId
+        ? {
+            ...goal,
+            plan: "Discontinue" as GoalPlan,
+            progressedToGoalId: undefined,
+            modifiedGoal: "",
+          }
+        : goal,
+      );
+    patch("goals", goals);
+  }
+
   function patchPeriodField(key: PeriodConfirmKey, value: string) {
     if (!note) return;
     patch(key, value as never);
@@ -492,9 +530,32 @@ export default function ProgressNoteScreen({ onExit, mode = "new" }: { onExit: (
   }
 
   function handleGoalStatusChange(index: number, status: GoalProgressStatus) {
-    const goal = note!.goals[index];
+    if (!note) return;
+    const goal = note.goals[index];
     if (status === "Met") {
       beginMetGoalWorkflow(index);
+      return;
+    }
+
+    if (goal.progressedToGoalId) {
+      const proceed = window.confirm("Changing this parent goal away from Met will remove its progressed child goal so the note stays internally consistent. Continue?");
+      if (!proceed) return;
+      const removeIds = collectDescendantGoalIds(goal.progressedToGoalId);
+      const goals = note.goals
+        .filter(item => !removeIds.has(item.goalId))
+        .map(item => item.goalId === goal.goalId
+          ? {
+              ...item,
+              status,
+              goalState: "active" as const,
+              completedAt: undefined,
+              plan: "Continue" as GoalPlan,
+              progressedToGoalId: undefined,
+              modifiedGoal: "",
+            }
+          : item,
+        );
+      patch("goals", goals);
       return;
     }
 
@@ -917,7 +978,7 @@ export default function ProgressNoteScreen({ onExit, mode = "new" }: { onExit: (
             <CardContent>
               <Stack spacing={2}>
                 <Typography variant="h5" fontWeight={700}>6. Goal Progress</Typography>
-                <Alert severity="info">Mark the goal's clinical status first. Selecting Met will ask whether the goal should be closed or progressed. Progressing a goal preserves the completed goal and creates a new linked goal.</Alert>
+                <Alert severity="info">Mark the goal's clinical status first. Selecting Met will ask whether the goal should be closed or progressed. If a progressed goal was created by mistake, you can remove it or change the parent goal's status; the linked goal will be cleaned up so the note stays consistent.</Alert>
                 {note.goals.length === 0
                   ? <Alert severity="warning">No structured goals were found in the initial evaluation.</Alert>
                   : note.goals.map((goal, index) => {
@@ -956,7 +1017,6 @@ export default function ProgressNoteScreen({ onExit, mode = "new" }: { onExit: (
                               <Select
                                 label="Status"
                                 value={goal.status}
-                                disabled={progressed}
                                 onChange={event => handleGoalStatusChange(index, event.target.value as GoalProgressStatus)}
                               >
                                 <MenuItem value=""><em>Select status</em></MenuItem>
@@ -980,6 +1040,26 @@ export default function ProgressNoteScreen({ onExit, mode = "new" }: { onExit: (
                           </Stack>
 
                           {goal.plan === "Upgrade" && goal.modifiedGoal && <Alert severity="success">Progressed to: {goal.modifiedGoal}</Alert>}
+                          {progressed && goal.progressedToGoalId && (
+                            <Button
+                              variant="outlined"
+                              color="warning"
+                              onClick={() => removeProgressedGoal(goal.progressedToGoalId!)}
+                              sx={{ alignSelf: "flex-start" }}
+                            >
+                              Undo Progression
+                            </Button>
+                          )}
+                          {child && (
+                            <Button
+                              variant="outlined"
+                              color="error"
+                              onClick={() => removeProgressedGoal(goal.goalId)}
+                              sx={{ alignSelf: "flex-start" }}
+                            >
+                              Remove Progressed Goal
+                            </Button>
+                          )}
                           <Field label="Goal progress notes" value={goal.notes} onChange={value => patchGoal(index, { notes: value })} multiline />
                         </Stack></CardContent>
                       </Card>
