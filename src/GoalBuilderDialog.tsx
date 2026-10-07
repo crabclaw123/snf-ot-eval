@@ -82,11 +82,13 @@ function ChoiceButtons({
   options,
   value,
   suggested,
+  disabled = false,
   onChange,
 }: {
   options: string[];
   value: string;
   suggested?: string;
+  disabled?: boolean;
   onChange: (value: string) => void;
 }) {
   return (
@@ -96,6 +98,7 @@ function ChoiceButtons({
           key={option}
           variant={value === option ? "contained" : "outlined"}
           onClick={() => onChange(option)}
+          disabled={disabled}
           sx={{ justifyContent: "space-between", textTransform: "none", py: 1.25, textAlign: "left" }}
         >
           <span>{option}</span>
@@ -179,13 +182,37 @@ export default function GoalBuilderDialog({
   const chooseOccupation = (occupation: string) => {
     const nextPlof = adlPlof[occupation] ?? "";
     const nextCurrent = adlCurrent[occupation] ?? "";
-    update({ occupation, plof: nextPlof, current: nextCurrent });
+    onDraftChange(current => ({
+      ...current,
+      occupation,
+      plof: nextPlof,
+      current: nextCurrent,
+      ...(current.occupation !== occupation ? { performanceProblem: "", target: "" } : {}),
+    }));
+  };
+
+  const enterCustomOccupation = (occupation: string) => {
+    onDraftChange(current => ({
+      ...current,
+      occupation,
+      plof: "",
+      current: "",
+      ...(current.occupation !== occupation ? { performanceProblem: "", target: "" } : {}),
+    }));
   };
 
   const chooseTimeframe = (timeframe: string) => {
     const baseDate = evaluationDate || new Date().toISOString().slice(0, 10);
     const targetDate = calculateGoalTargetDate(baseDate, timeframe);
     update({ timeframe, targetDate });
+  };
+
+  const enterCustomTimeframe = (timeframe: string) => {
+    onDraftChange(current => ({
+      ...current,
+      timeframe,
+      ...(current.timeframe !== timeframe ? { targetDate: "" } : {}),
+    }));
   };
 
   const handleSave = () => {
@@ -249,6 +276,7 @@ export default function GoalBuilderDialog({
                       key={key}
                       variant={effectiveGoal.occupation === key ? "contained" : "outlined"}
                       onClick={() => chooseOccupation(key)}
+                      disabled={disabled}
                       sx={{ justifyContent: "flex-start", textTransform: "none", py: 1.1 }}
                     >
                       {label}
@@ -261,7 +289,7 @@ export default function GoalBuilderDialog({
                 fullWidth
                 label="Or enter your own occupation / activity"
                 value={ADLS.some(([key]) => key === draft.occupation) ? "" : draft.occupation}
-                onChange={event => update({ occupation: event.target.value, plof: "", current: "" })}
+                onChange={event => enterCustomOccupation(event.target.value)}
                 disabled={disabled}
                 placeholder="Example: meal preparation, medication management, leisure participation"
               />
@@ -289,11 +317,11 @@ export default function GoalBuilderDialog({
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 1.25 }}>
                     What occupational outcome is this goal intended to improve?
                   </Typography>
-                  <ChoiceButtons options={purposeOptions} value={effectiveGoal.performanceProblem} onChange={value => update({ performanceProblem: value })} />
+                  <ChoiceButtons options={purposeOptions} value={effectiveGoal.performanceProblem} disabled={disabled} onChange={value => update({ performanceProblem: value })} />
                   <TextField
                     fullWidth
                     sx={{ mt: 1.5 }}
-                    label="Or write your own functional purpose"
+                    label="Functional purpose (editable)"
                     value={effectiveGoal.performanceProblem}
                     onChange={event => update({ performanceProblem: event.target.value })}
                     disabled={disabled}
@@ -329,11 +357,11 @@ export default function GoalBuilderDialog({
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 1.25 }}>
                   The suggested target is a starting point only. Choose or enter the target supported by your clinical reasoning.
                 </Typography>
-                <ChoiceButtons options={targetOptions} value={effectiveGoal.target} suggested={suggestedTarget} onChange={value => update({ target: value })} />
+                <ChoiceButtons options={targetOptions} value={effectiveGoal.target} suggested={suggestedTarget} disabled={disabled} onChange={value => update({ target: value })} />
                 <TextField
                   fullWidth
                   sx={{ mt: 1.5 }}
-                  label={effectiveGoal.sourceType === "ROM" ? "Or enter your own ROM target" : effectiveGoal.sourceType === "Strength" ? "Or enter your own strength target" : "Or enter your own target performance"}
+                  label={effectiveGoal.sourceType === "ROM" ? "ROM target (editable)" : effectiveGoal.sourceType === "Strength" ? "Strength target (editable)" : "Target performance (editable)"}
                   value={effectiveGoal.target}
                   onChange={event => update({ target: event.target.value })}
                   disabled={disabled}
@@ -357,13 +385,13 @@ export default function GoalBuilderDialog({
                       Cueing, equipment, safety, positioning, or other conditions that matter for performance.
                     </Typography>
                   </Box>
-                  {!!effectiveGoal.condition && <Button size="small" onClick={() => update({ condition: "" })}>Clear condition</Button>}
+                  {!!effectiveGoal.condition && <Button size="small" disabled={disabled} onClick={() => update({ condition: "" })}>Clear condition</Button>}
                 </Stack>
-                <ChoiceButtons options={conditionOptions} value={effectiveGoal.condition} onChange={value => update({ condition: value })} />
+                <ChoiceButtons options={conditionOptions} value={effectiveGoal.condition} disabled={disabled} onChange={value => update({ condition: value })} />
                 <TextField
                   fullWidth
                   sx={{ mt: 1.5 }}
-                  label="Or write your own condition"
+                  label="Condition / context (editable)"
                   value={effectiveGoal.condition}
                   onChange={event => update({ condition: event.target.value })}
                   disabled={disabled}
@@ -383,13 +411,13 @@ export default function GoalBuilderDialog({
                       Add repeated performance or measurement language when it strengthens the goal.
                     </Typography>
                   </Box>
-                  {!!effectiveGoal.measurableCriterion && <Button size="small" onClick={() => update({ measurableCriterion: "" })}>Clear criterion</Button>}
+                  {!!effectiveGoal.measurableCriterion && <Button size="small" disabled={disabled} onClick={() => update({ measurableCriterion: "" })}>Clear criterion</Button>}
                 </Stack>
-                <ChoiceButtons options={criterionOptions} value={effectiveGoal.measurableCriterion} onChange={value => update({ measurableCriterion: value })} />
+                <ChoiceButtons options={criterionOptions} value={effectiveGoal.measurableCriterion} disabled={disabled} onChange={value => update({ measurableCriterion: value })} />
                 <TextField
                   fullWidth
                   sx={{ mt: 1.5 }}
-                  label="Or write your own success criterion"
+                  label="Success criterion (editable)"
                   value={effectiveGoal.measurableCriterion}
                   onChange={event => update({ measurableCriterion: event.target.value })}
                   disabled={disabled}
@@ -408,13 +436,13 @@ export default function GoalBuilderDialog({
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 1.25 }}>
                   Preset target dates are calculated from the evaluation date ({formatGoalDate(evaluationDate) || "not documented"}), not the date the goal builder happens to be opened.
                 </Typography>
-                <ChoiceButtons options={GOAL_TIMEFRAMES} value={effectiveGoal.timeframe} onChange={chooseTimeframe} />
+                <ChoiceButtons options={GOAL_TIMEFRAMES} value={effectiveGoal.timeframe} disabled={disabled} onChange={chooseTimeframe} />
                 <TextField
                   fullWidth
                   sx={{ mt: 1.5 }}
-                  label="Or enter your own timeframe"
+                  label="Custom timeframe"
                   value={effectiveGoal.timeframe}
-                  onChange={event => update({ timeframe: event.target.value })}
+                  onChange={event => enterCustomTimeframe(event.target.value)}
                   disabled={disabled}
                   placeholder="Example: within 10 treatment sessions"
                 />
@@ -447,7 +475,7 @@ export default function GoalBuilderDialog({
                         </Typography>
                       </Box>
                       {hasCustomizedWording && (
-                        <Button size="small" onClick={() => update({ goalStatement: "" })}>Reset to generated wording</Button>
+                        <Button size="small" disabled={disabled} onClick={() => update({ goalStatement: "" })}>Reset to generated wording</Button>
                       )}
                     </Stack>
                     <TextField
@@ -499,12 +527,12 @@ export default function GoalBuilderDialog({
         <Stack direction="row" spacing={1}>
           <Button onClick={() => onStepChange(Math.max(0, step - 1))} disabled={step === 0}>Back</Button>
           {!isLastStep ? (
-            <Button variant="contained" onClick={() => onStepChange(step + 1)} disabled={!canAdvance}>Next</Button>
+            <Button variant="contained" onClick={() => onStepChange(step + 1)} disabled={!canAdvance || disabled}>Next</Button>
           ) : (
             <Button
               variant="contained"
               onClick={handleSave}
-              disabled={!canAdvance || !effectiveGoal.occupation.trim() || !effectiveGoal.target.trim() || !effectiveGoal.performanceProblem.trim() || !finalGoalText.trim()}
+              disabled={disabled || !canAdvance || !effectiveGoal.occupation.trim() || !effectiveGoal.target.trim() || !effectiveGoal.performanceProblem.trim() || !finalGoalText.trim()}
             >
               {isEditing ? "Save Changes" : "Add Goal"}
             </Button>
