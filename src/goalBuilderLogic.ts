@@ -325,6 +325,15 @@ function finishStatement(body: string, goal: OTGoal, commaBeforePurpose = false)
   return `${withTime}${targetDate ? ` (target date: ${targetDate})` : ""}.`;
 }
 
+function splitMeasurementCriterion(criterion: string, expected: "goniometry" | "manual muscle testing"): { measurement: string; remainder: string } {
+  const value = clean(criterion);
+  const canonical = expected === "goniometry" ? "as measured by goniometry" : "as measured by manual muscle testing";
+  if (value.toLowerCase() === canonical) {
+    return { measurement: expected === "goniometry" ? "measured by goniometry" : "measured by manual muscle testing", remainder: "" };
+  }
+  return { measurement: "", remainder: value };
+}
+
 export function buildGoalStatement(goal: OTGoal): string {
   if (!clean(goal.occupation) || !clean(goal.target)) return "";
 
@@ -338,13 +347,15 @@ export function buildGoalStatement(goal: OTGoal): string {
     const metric = goal.sourceMetric || "AROM";
     const baseline = normalizeRomValue(goal.sourceBaseline);
     const target = normalizeRomValue(goal.target);
+    const { measurement, remainder } = splitMeasurementCriterion(criterion, "goniometry");
+    const measurementPhrase = measurement ? `, ${measurement},` : "";
 
     let body = clean(goal.target).toLowerCase().startsWith("functional rom sufficient")
-      ? `Patient will demonstrate functional ${side} ${movement.toLowerCase()} ${metric} sufficient for ${activity}`
-      : `Patient will increase ${side} ${movement.toLowerCase()} ${metric} from ${baseline} to ${target}`;
+      ? `Patient will demonstrate functional ${side} ${movement.toLowerCase()} ${metric}${measurementPhrase} sufficient for ${activity}`
+      : `Patient will increase ${side} ${movement.toLowerCase()} ${metric}${measurementPhrase} from ${baseline} to ${target}`;
 
     if (condition) body += ` ${condition}`;
-    if (criterion) body += `, ${criterion}`;
+    if (remainder) body += `, ${remainder}`;
     return finishStatement(body, goal, true);
   }
 
@@ -353,13 +364,15 @@ export function buildGoalStatement(goal: OTGoal): string {
     const movement = clean(goal.sourceMovement) || "upper-extremity movement";
     const baseline = normalizeStrengthValue(goal.sourceBaseline);
     const target = normalizeStrengthValue(goal.target);
+    const { measurement, remainder } = splitMeasurementCriterion(criterion, "manual muscle testing");
+    const measurementPhrase = measurement ? `, ${measurement},` : "";
 
     let body = clean(goal.target).toLowerCase().startsWith("functional strength sufficient")
-      ? `Patient will demonstrate functional ${side} ${movement.toLowerCase()} strength sufficient for ${activity}`
-      : `Patient will improve ${side} ${movement.toLowerCase()} strength from ${baseline} to ${target}`;
+      ? `Patient will demonstrate functional ${side} ${movement.toLowerCase()} strength${measurementPhrase} sufficient for ${activity}`
+      : `Patient will improve ${side} ${movement.toLowerCase()} strength${measurementPhrase} from ${baseline} to ${target}`;
 
     if (condition) body += ` ${condition}`;
-    if (criterion) body += `, ${criterion}`;
+    if (remainder) body += `, ${remainder}`;
     return finishStatement(body, goal, true);
   }
 
