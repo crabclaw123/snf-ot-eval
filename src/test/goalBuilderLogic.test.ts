@@ -3,7 +3,10 @@ import type { OTGoal } from "../types";
 import {
   buildGoalStatement,
   calculateGoalTargetDate,
+  goalBuilderCanAdvance,
+  parseFindingContext,
   recommendedTarget,
+  smartConditionOptions,
 } from "../goalBuilderLogic";
 
 function baseGoal(overrides: Partial<OTGoal> = {}): OTGoal {
@@ -93,5 +96,31 @@ describe("goal builder logic", () => {
   it("suggests the next functional assistance level", () => {
     expect(recommendedTarget(baseGoal({ current: "Minimal Assist" }))).toBe("Contact Guard Assist");
     expect(recommendedTarget(baseGoal({ current: "Contact Guard Assist" }))).toBe("Supervision");
+  });
+
+  it("keeps conditions source-aware", () => {
+    const romConditions = smartConditionOptions(baseGoal({ sourceType: "ROM" }));
+    const functionalConditions = smartConditionOptions(baseGoal({ sourceType: "Functional" }));
+
+    expect(romConditions).toContain("without increased pain");
+    expect(romConditions).not.toContain("using adaptive equipment as needed");
+    expect(functionalConditions).toContain("using adaptive equipment as needed");
+  });
+
+  it("allows the optional criteria step to be skipped", () => {
+    const goal = baseGoal({ condition: "", measurableCriterion: "" });
+    expect(goalBuilderCanAdvance("criteria", goal)).toBe(true);
+  });
+
+  it("preserves source metadata when a ROM finding starts the builder", () => {
+    const parsed = parseFindingContext("Right Shoulder extension — Impaired; AROM: 45°, PROM: 60°");
+    expect(parsed).toMatchObject({
+      sourceType: "ROM",
+      sourceSide: "right",
+      sourceMovement: "Shoulder extension",
+      sourceMetric: "AROM",
+      sourceBaseline: "45",
+      measurableCriterion: "as measured by goniometry",
+    });
   });
 });
