@@ -57,7 +57,7 @@ describe("goal builder logic", () => {
     }));
 
     expect(statement).toBe(
-      "Patient will increase right shoulder extension AROM from 45° to 65° without increased pain, as measured by goniometry, to improve right upper-extremity reach required for upper-body dressing within 6 weeks (target date: 11/17/2026).",
+      "Patient will increase right shoulder extension AROM, measured by goniometry, from 45° to 65° without increased pain, to improve right upper-extremity reach required for upper-body dressing within 6 weeks (target date: 11/17/2026).",
     );
   });
 
@@ -78,7 +78,7 @@ describe("goal builder logic", () => {
     }));
 
     expect(statement).toBe(
-      "Patient will improve right shoulder flexion strength from 3/5 to 4-/5 without compensatory movement, as measured by manual muscle testing, to improve right upper-extremity strength required for upper-body dressing within 6 weeks (target date: 11/17/2026).",
+      "Patient will improve right shoulder flexion strength, measured by manual muscle testing, from 3/5 to 4-/5 without compensatory movement, to improve right upper-extremity strength required for upper-body dressing within 6 weeks (target date: 11/17/2026).",
     );
   });
 
