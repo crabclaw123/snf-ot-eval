@@ -1,0 +1,126 @@
+import { describe, expect, it } from "vitest";
+import type { OTGoal } from "../types";
+import {
+  buildGoalStatement,
+  calculateGoalTargetDate,
+  goalBuilderCanAdvance,
+  parseFindingContext,
+  recommendedTarget,
+  smartConditionOptions,
+} from "../goalBuilderLogic";
+
+function baseGoal(overrides: Partial<OTGoal> = {}): OTGoal {
+  return {
+    id: "goal-1",
+    type: "Short-term",
+    occupation: "eating",
+    plof: "Independent",
+    current: "Minimal Assist",
+    target: "Supervision",
+    performanceProblem: "reduce caregiver assistance during eating",
+    condition: "with no more than 2 verbal cues",
+    measurableCriterion: "in 4 out of 5 observed opportunities",
+    timeframe: "4 weeks",
+    targetDate: "2026-11-03",
+    goalStatement: "",
+    sourceType: "Functional",
+    ...overrides,
+  };
+}
+
+describe("goal builder logic", () => {
+  it("builds a fluent functional goal without duplicate connector wording", () => {
+    const statement = buildGoalStatement(baseGoal());
+
+    expect(statement).toBe(
+      "Patient will improve eating from minimal assistance to supervision with no more than 2 verbal cues in 4 out of 5 observed opportunities to reduce caregiver assistance during eating within 4 weeks (target date: 11/03/2026).",
+    );
+    expect(statement).not.toContain("while with");
+    expect(statement).not.toContain("as demonstrated by without");
+  });
+
+  it("builds a clean ROM goal tied to occupational purpose", () => {
+    const statement = buildGoalStatement(baseGoal({
+      occupation: "upperBodyDressing",
+      current: "Minimal Assist",
+      target: "65°",
+      sourceType: "ROM",
+      sourceSide: "right",
+      sourceMovement: "Shoulder extension",
+      sourceMetric: "AROM",
+      sourceBaseline: "45",
+      performanceProblem: "improve right upper-extremity reach required for upper-body dressing",
+      condition: "without increased pain",
+      measurableCriterion: "as measured by goniometry",
+      timeframe: "6 weeks",
+      targetDate: "2026-11-17",
+    }));
+
+    expect(statement).toBe(
+      "Patient will increase right shoulder extension AROM, measured by goniometry, from 45° to 65° without increased pain, to improve right upper-extremity reach required for upper-body dressing within 6 weeks (target date: 11/17/2026).",
+    );
+  });
+
+  it("builds a clean strength goal", () => {
+    const statement = buildGoalStatement(baseGoal({
+      occupation: "upperBodyDressing",
+      target: "4-/5",
+      sourceType: "Strength",
+      sourceSide: "right",
+      sourceMovement: "Shoulder flexion",
+      sourceMetric: "MMT",
+      sourceBaseline: "3",
+      performanceProblem: "improve right upper-extremity strength required for upper-body dressing",
+      condition: "without compensatory movement",
+      measurableCriterion: "as measured by manual muscle testing",
+      timeframe: "6 weeks",
+      targetDate: "2026-11-17",
+    }));
+
+    expect(statement).toBe(
+      "Patient will improve right shoulder flexion strength, measured by manual muscle testing, from 3/5 to 4-/5 without compensatory movement, to improve right upper-extremity strength required for upper-body dressing within 6 weeks (target date: 11/17/2026).",
+    );
+  });
+
+  it("does not duplicate within for a custom timeframe", () => {
+    const statement = buildGoalStatement(baseGoal({ timeframe: "within 10 treatment sessions" }));
+    expect(statement).toContain("within 10 treatment sessions");
+    expect(statement).not.toContain("within within");
+  });
+
+  it("calculates preset target dates from the evaluation date", () => {
+    expect(calculateGoalTargetDate("2026-10-06", "4 weeks")).toBe("2026-11-03");
+    expect(calculateGoalTargetDate("2026-10-06", "6 weeks")).toBe("2026-11-17");
+  });
+
+  it("suggests the next functional assistance level", () => {
+    expect(recommendedTarget(baseGoal({ current: "Minimal Assist" }))).toBe("Contact Guard Assist");
+    expect(recommendedTarget(baseGoal({ current: "Contact Guard Assist" }))).toBe("Supervision");
+  });
+
+  it("keeps conditions source-aware", () => {
+    const romConditions = smartConditionOptions(baseGoal({ sourceType: "ROM" }));
+    const functionalConditions = smartConditionOptions(baseGoal({ sourceType: "Functional" }));
+
+    expect(romConditions).toContain("without increased pain");
+    expect(romConditions).not.toContain("using adaptive equipment as needed");
+    expect(functionalConditions).toContain("using adaptive equipment as needed");
+  });
+
+  it("allows the optional criteria step to be skipped", () => {
+    const goal = baseGoal({ condition: "", measurableCriterion: "" });
+    expect(goalBuilderCanAdvance("criteria", goal)).toBe(true);
+  });
+
+  it("preserves source metadata when a ROM finding starts the builder", () => {
+    const parsed = parseFindingContext("Right Shoulder extension — Impaired; AROM: 45°, PROM: 60°");
+    expect(parsed).toMatchObject({
+      sourceType: "ROM",
+      sourceSide: "right",
+      sourceMovement: "Shoulder extension",
+      sourceMetric: "AROM",
+      sourceBaseline: "45",
+      measurableCriterion: "as measured by goniometry",
+    });
+  });
+});

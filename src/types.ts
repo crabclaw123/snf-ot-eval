@@ -37,6 +37,7 @@ export interface StrengthAssessment { right: Record<string, StrengthFinding>; le
 export interface ClientFactors { orientedPerson: boolean; orientedPlace: boolean; orientedTime: boolean; orientedSituation: boolean; cognition: string; communication: string; vision: string; hearing: string; sensation: string; pain: string; coordination: string; balance: string; endurance: string; motorPlanning: string; functionalMobility: string; standardizedAssessments: string; assessmentFindings: string; }
 export interface ClinicalAssessment { assessmentSummary: string; prognosis: string; }
 export type GoalType = "Short-term" | "Long-term";
+export type GoalSourceType = "Functional" | "ROM" | "Strength";
 export interface OTGoal {
   id: string;
   type: GoalType;
@@ -48,7 +49,13 @@ export interface OTGoal {
   condition: string;
   measurableCriterion: string;
   timeframe: string;
+  targetDate?: string;
   goalStatement: string;
+  sourceType?: GoalSourceType;
+  sourceSide?: "right" | "left";
+  sourceMovement?: string;
+  sourceMetric?: "AROM" | "PROM" | "MMT";
+  sourceBaseline?: string;
 }
 export interface GoalsPlanOfCare {
   frequency: string;
